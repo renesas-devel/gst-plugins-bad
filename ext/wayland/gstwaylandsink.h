@@ -66,6 +66,7 @@ struct  display
   struct wl_compositor *compositor;
   struct wl_shell *shell;
   struct wl_shm *shm;
+  struct wl_output *output;
   uint32_t formats;
 #ifdef HAVE_WAYLAND_KMS
   struct wl_kms *wl_kms;
@@ -84,6 +85,8 @@ struct window
   struct wl_buffer *buffer;
   struct wl_callback *callback;
   guint redraw_pending :1;
+  guint init_complete :1;
+  guint screen_valid :1;
 
 };
 

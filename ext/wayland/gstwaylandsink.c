@@ -116,6 +116,8 @@ static const wl_VideoFormat formats[] = {
 #endif
 };
 
+static int fullscreen;
+
 static uint32_t
 gst_wayland_format_to_wl_format (GstVideoFormat format)
 {
@@ -303,10 +305,25 @@ gst_wayland_sink_get_caps (GstBaseSink * bsink, GstCaps * filter)
 {
   GstWaylandSink *sink;
   GstCaps *caps;
+  int i;
 
   sink = GST_WAYLAND_SINK (bsink);
+  caps = gst_caps_copy(gst_pad_get_pad_template_caps (GST_VIDEO_SINK_PAD (sink)));
 
-  caps = gst_pad_get_pad_template_caps (GST_VIDEO_SINK_PAD (sink));
+  if (!sink->window || !sink->window->screen_valid)
+	goto skip;
+
+  for (i = 0; i < gst_caps_get_size (caps); i++) {
+    GstStructure *structure = gst_caps_get_structure (caps, i);
+
+    gst_structure_set (structure,
+		"width", G_TYPE_INT, sink->window->width,
+		"height", G_TYPE_INT, sink->window->height,
+		NULL);
+  }
+
+skip:
+
   if (filter) {
     GstCaps *intersection;
 
@@ -388,6 +405,8 @@ registry_handle_global (void *data, struct wl_registry *registry,
   } else if (strcmp (interface, "wl_shm") == 0) {
     d->shm = wl_registry_bind (registry, id, &wl_shm_interface, 1);
     wl_shm_add_listener (d->shm, &shm_listenter, d);
+  } else if (strcmp (interface, "wl_output") == 0) {
+    d->output = wl_registry_bind (registry, id, &wl_output_interface, 1); /* always last display */
 #ifdef HAVE_WAYLAND_KMS
   } else if (strcmp (interface, "wl_kms") == 0) {
     d->wl_kms = wl_registry_bind (registry, id, &wl_kms_interface, version);
@@ -402,10 +421,42 @@ static const struct wl_registry_listener registry_listener = {
   registry_handle_global
 };
 
+static void
+handle_ping (void *data, struct wl_shell_surface *shell_surface,
+    uint32_t serial)
+{
+  wl_shell_surface_pong (shell_surface, serial);
+}
+
+static void
+handle_configure (void *data, struct wl_shell_surface *shell_surface,
+    uint32_t edges, int32_t width, int32_t height)
+{
+    struct window *window = data;
+    GST_DEBUG_OBJECT (NULL, "handle_configure: width = %d, height= %d", width, height);
+    if (fullscreen) {
+      window->width = width;
+      window->height = height;
+      window->screen_valid = TRUE;
+    }
+}
+
+static void
+handle_popup_done (void *data, struct wl_shell_surface *shell_surface)
+{
+}
+
+static const struct wl_shell_surface_listener shell_surface_listener = {
+  handle_ping,
+  handle_configure,
+  handle_popup_done
+};
+
 static gboolean
 create_display (GstWaylandSink * sink)
 {
   struct display *display;
+  struct window *window;
 
   display = sink->display;
 
@@ -422,6 +473,34 @@ create_display (GstWaylandSink * sink)
   wl_registry_add_listener (display->registry, &registry_listener, display);
 
   wl_display_roundtrip (display->display);
+
+  window = malloc (sizeof *window);
+  window->display = display;
+  window->redraw_pending = FALSE;
+  window->screen_valid = FALSE;
+  window->surface = wl_compositor_create_surface (display->compositor);
+
+  if (display->shell) {
+    window->shell_surface = wl_shell_get_shell_surface (display->shell,
+        window->surface);
+
+    if(!window->shell_surface) {
+      GST_ERROR_OBJECT (sink, "Failed to create shell surface");
+	return FALSE;
+    }
+
+    wl_shell_surface_add_listener (window->shell_surface,
+        &shell_surface_listener, window);
+
+    if (fullscreen) {
+      wl_shell_surface_set_fullscreen(window->shell_surface,
+			WL_SHELL_SURFACE_FULLSCREEN_METHOD_DEFAULT,
+			0, display->output);
+    } else {
+      wl_shell_surface_set_toplevel (window->shell_surface);
+    }
+  }
+  sink->window = window;
 
 #ifdef HAVE_WAYLAND_KMS
   if (!display->wl_kms && !display->shm) {
@@ -543,46 +622,25 @@ config_failed:
 }
 
 static void
-handle_ping (void *data, struct wl_shell_surface *shell_surface,
-    uint32_t serial)
-{
-  wl_shell_surface_pong (shell_surface, serial);
-}
-
-static void
-handle_configure (void *data, struct wl_shell_surface *shell_surface,
-    uint32_t edges, int32_t width, int32_t height)
-{
-}
-
-static void
-handle_popup_done (void *data, struct wl_shell_surface *shell_surface)
-{
-}
-
-static const struct wl_shell_surface_listener shell_surface_listener = {
-  handle_ping,
-  handle_configure,
-  handle_popup_done
-};
-
-static void
 create_window (GstWaylandSink * sink, struct display *display, int width,
     int height)
 {
   struct window *window;
 
-  if (sink->window)
-    return;
+/*  if (sink->window)
+    return; */
 
   g_mutex_lock (&sink->wayland_lock);
 
-  window = malloc (sizeof *window);
-  window->display = display;
+  window = sink->window;
+
   window->width = width;
   window->height = height;
-  window->redraw_pending = FALSE;
 
+/*
+  window = malloc (sizeof *window);
+  window->display = display;
+  window->redraw_pending = FALSE;
   window->surface = wl_compositor_create_surface (display->compositor);
 
   if (display->shell) {
@@ -598,7 +656,8 @@ create_window (GstWaylandSink * sink, struct display *display, int width,
   }
 
   sink->window = window;
-
+*/
+  window->init_complete = TRUE;
   g_mutex_unlock (&sink->wayland_lock);
 }
 
@@ -606,8 +665,13 @@ static gboolean
 gst_wayland_sink_start (GstBaseSink * bsink)
 {
   GstWaylandSink *sink = (GstWaylandSink *) bsink;
+  char *env_full;
 
   GST_DEBUG_OBJECT (sink, "start");
+
+  env_full = getenv("WAYLANDSINK_FULLSCREEN");
+
+  fullscreen = (env_full == NULL) ? 0 : atoi(env_full);
 
   if (!create_display (sink)) {
     GST_ELEMENT_ERROR (bsink, RESOURCE, OPEN_READ_WRITE,
@@ -728,7 +792,7 @@ gst_wayland_sink_render (GstBaseSink * bsink, GstBuffer * buffer)
   struct display *display;
 
   GST_LOG_OBJECT (sink, "render buffer %p", buffer);
-  if (!sink->window)
+  if (!sink->window->init_complete)
     create_window (sink, sink->display, sink->video_width, sink->video_height);
 
   window = sink->window;
