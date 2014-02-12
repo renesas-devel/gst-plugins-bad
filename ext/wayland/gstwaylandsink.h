@@ -42,6 +42,10 @@
 
 #include <wayland-client.h>
 
+#ifdef HAVE_WAYLAND_KMS
+#include "wayland-kms-client-protocol.h"
+#endif
+
 #define GST_TYPE_WAYLAND_SINK \
 	    (gst_wayland_sink_get_type())
 #define GST_WAYLAND_SINK(obj) \
@@ -63,6 +67,12 @@ struct  display
   struct wl_shell *shell;
   struct wl_shm *shm;
   uint32_t formats;
+#ifdef HAVE_WAYLAND_KMS
+  struct wl_kms *wl_kms;
+  gboolean kms_argb_supported;
+  gint drm_fd;
+  gboolean authenticated;
+#endif
 };
 
 struct window

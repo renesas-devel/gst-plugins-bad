@@ -24,6 +24,11 @@
 G_BEGIN_DECLS
 
 #include "gstwaylandsink.h"
+#ifdef HAVE_WAYLAND_KMS
+#include "drm.h"
+#include "libkms.h"
+#include <xf86drm.h>
+#endif
 typedef struct _GstWlMeta GstWlMeta;
 
 typedef struct _GstWaylandBufferPool GstWaylandBufferPool;
@@ -44,6 +49,9 @@ struct _GstWlMeta {
   struct wl_buffer *wbuffer;
   void *data;
   size_t size;
+#ifdef HAVE_WAYLAND_KMS
+  struct kms_bo *kms_bo;
+#endif
 };
 
 /* buffer pool functions */
@@ -63,6 +71,10 @@ struct _GstWaylandBufferPool
   GstVideoInfo info;
   guint width;
   guint height;
+
+#ifdef HAVE_WAYLAND_KMS
+  struct kms_driver *kms;
+#endif
 };
 
 struct _GstWaylandBufferPoolClass

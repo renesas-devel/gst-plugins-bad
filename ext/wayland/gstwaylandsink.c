@@ -185,6 +185,8 @@ static void
 gst_wayland_sink_init (GstWaylandSink * sink)
 {
   sink->display = NULL;
+  sink->display->drm_fd = -1;
+
   sink->window = NULL;
   sink->shm_pool = NULL;
   sink->pool = NULL;
@@ -238,6 +240,9 @@ destroy_display (struct display *display)
 
   wl_display_flush (display->display);
   wl_display_disconnect (display->display);
+  if (display->drm_fd >= 0)
+    close (display->drm_fd);
+
   free (display);
 }
 
@@ -318,6 +323,50 @@ struct wl_shm_listener shm_listenter = {
   shm_format
 };
 
+#ifdef HAVE_WAYLAND_KMS
+static void
+kms_device (void *data, struct wl_kms *kms, const char *device)
+{
+  struct display *d = data;
+  drm_magic_t magic;
+
+  if ((d->drm_fd = open (device, O_RDWR | O_CLOEXEC)) < 0) {
+    GST_ERROR ("%s open failed (%s)", device, strerror (errno));
+    return;
+  }
+
+  drmGetMagic (d->drm_fd, &magic);
+  wl_kms_authenticate (d->wl_kms, magic);
+}
+
+static void
+kms_format (void *data, struct wl_kms *wl_shm, uint32_t format)
+{
+  struct display *d = data;
+
+  if (format == WL_KMS_FORMAT_ARGB8888)
+    d->kms_argb_supported = TRUE;
+
+  GST_DEBUG ("kms_formats = 0x%08x", format);
+}
+
+static void
+kms_handle_authenticated (void *data, struct wl_kms *kms)
+{
+  struct display *d = data;
+
+  GST_DEBUG ("wl_kms has been authenticated");
+
+  d->authenticated = TRUE;
+}
+
+static const struct wl_kms_listener kms_listenter = {
+  .device = kms_device,
+  .format = kms_format,
+  .authenticated = kms_handle_authenticated
+};
+#endif
+
 static void
 registry_handle_global (void *data, struct wl_registry *registry,
     uint32_t id, const char *interface, uint32_t version)
@@ -332,7 +381,14 @@ registry_handle_global (void *data, struct wl_registry *registry,
   } else if (strcmp (interface, "wl_shm") == 0) {
     d->shm = wl_registry_bind (registry, id, &wl_shm_interface, 1);
     wl_shm_add_listener (d->shm, &shm_listenter, d);
+#ifdef HAVE_WAYLAND_KMS
+  } else if (strcmp (interface, "wl_kms") == 0) {
+    d->wl_kms = wl_registry_bind (registry, id, &wl_kms_interface, version);
+    wl_kms_add_listener (d->wl_kms, &kms_listenter, d);
   }
+#else
+  }
+#endif
 }
 
 static const struct wl_registry_listener registry_listener = {
@@ -356,12 +412,39 @@ create_display (void)
   wl_registry_add_listener (display->registry, &registry_listener, display);
 
   wl_display_roundtrip (display->display);
+
+#ifdef HAVE_WAYLAND_KMS
+  if (!display->wl_kms && !display->shm) {
+    GST_ERROR ("Both wl_kms and wl_shm global objects couldn't be obtained");
+    return NULL;
+  }
+#else
   if (display->shm == NULL) {
     GST_ERROR ("No wl_shm global..");
     return NULL;
   }
+#endif
 
   wl_display_roundtrip (display->display);
+
+#ifdef HAVE_WAYLAND_KMS
+  if (display->wl_kms && !display->kms_argb_supported) {
+    GST_ERROR ("wl_kms format isn't WL_KMS_FORMAT_ARGB8888");
+    return NULL;
+  }
+
+  wl_display_roundtrip (display->display);
+
+  if (!display->authenticated) {
+    GST_ERROR ("Authentication failed...");
+    return NULL;
+  }
+#else
+  if (!(display->formats & (1 << WL_SHM_FORMAT_XRGB8888))) {
+    GST_ERROR ("WL_SHM_FORMAT_XRGB32 not available");
+    return NULL;
+  }
+#endif
 
   wl_display_get_fd (display->display);
 

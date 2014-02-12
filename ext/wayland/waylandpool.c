@@ -52,7 +52,15 @@ static void
 gst_wl_meta_free (GstWlMeta * meta, GstBuffer * buffer)
 {
   gst_object_unref (meta->sink);
+#ifdef HAVE_WAYLAND_KMS
+  if (meta->kms_bo) {
+    kms_bo_unmap (meta->kms_bo);
+    kms_bo_destroy (&meta->kms_bo);
+  } else
+    munmap (meta->data, meta->size);
+#else
   munmap (meta->data, meta->size);
+#endif
   wl_buffer_destroy (meta->wbuffer);
 }
 
@@ -242,9 +250,80 @@ gst_buffer_add_wayland_meta (GstBuffer * buffer, GstWaylandBufferPool * wpool)
       gst_memory_new_wrapped (GST_MEMORY_FLAG_NO_SHARE, data,
           size, 0, size, NULL, NULL));
 
+  return wmeta;
+}
+
+#ifdef HAVE_WAYLAND_KMS
+static GstWlMeta *
+gst_buffer_add_wayland_meta_kms (GstBuffer * buffer,
+    GstWaylandBufferPool * wpool)
+{
+  GstWlMeta *wmeta;
+  GstWaylandSink *sink;
+  gsize offset[GST_VIDEO_MAX_PLANES] = { 0 };
+  gint stride[GST_VIDEO_MAX_PLANES] = { 0 };
+  gint err;
+  void *data = NULL;
+  struct drm_gem_flink fl;
+  guint32 handle;
+  gint prime_fd;
+  unsigned attr[] = {
+    KMS_BO_TYPE, KMS_BO_TYPE_SCANOUT_X8R8G8B8,
+    KMS_WIDTH, 0,
+    KMS_HEIGHT, 0,
+    KMS_TERMINATE_PROP_LIST
+  };
+
+  sink = wpool->sink;
+
+  attr[3] = ((wpool->width + 31) >> 5) << 5;
+  attr[5] = wpool->height;
+
+  wmeta = (GstWlMeta *) gst_buffer_add_meta (buffer, GST_WL_META_INFO, NULL);
+  wmeta->sink = gst_object_ref (sink);
+
+  err = kms_bo_create (wpool->kms, attr, &wmeta->kms_bo);
+  if (err) {
+    GST_ERROR ("Failed to create kms bo");
+    return NULL;
+  }
+
+  err = kms_bo_map (wmeta->kms_bo, &data);
+  if (err) {
+    GST_ERROR ("Failed to map kms bo");
+    return NULL;
+  }
+
+  kms_bo_get_prop (wmeta->kms_bo, KMS_PITCH, (guint *) & stride[0]);
+
+  wmeta->data = data;
+  wmeta->size = stride[0] * wpool->height;
+
+  kms_bo_get_prop (wmeta->kms_bo, KMS_HANDLE, &handle);
+
+  fl.handle = handle;
+  fl.name = 0;
+  err = drmIoctl (sink->display->drm_fd, DRM_IOCTL_GEM_FLINK, &fl);
+  if (err) {
+    GST_ERROR ("DRM_IOCTL_GEM_FLINK failed. %s\n", strerror (errno));
+    return NULL;
+  }
+  prime_fd = fl.name;
+
+  wmeta->wbuffer = wl_kms_create_buffer (sink->display->wl_kms, prime_fd,
+      wpool->width, wpool->height, stride[0], WL_KMS_FORMAT_ARGB8888, 0);
+
+  gst_buffer_append_memory (buffer,
+      gst_memory_new_wrapped (GST_MEMORY_FLAG_NO_SHARE, data,
+          wmeta->size, 0, wmeta->size, NULL, NULL));
+
+  gst_buffer_add_video_meta_full (buffer, GST_VIDEO_FRAME_FLAG_NONE,
+      GST_VIDEO_FORMAT_BGRA, (int) wpool->width, (int) wpool->height, 1, offset,
+      stride);
 
   return wmeta;
 }
+#endif /* HAVE_WAYLAND_KMS */
 
 static GstFlowReturn
 wayland_buffer_pool_alloc (GstBufferPool * pool, GstBuffer ** buffer,
@@ -255,7 +334,14 @@ wayland_buffer_pool_alloc (GstBufferPool * pool, GstBuffer ** buffer,
   GstWlMeta *meta;
 
   w_buffer = gst_buffer_new ();
+#ifdef HAVE_WAYLAND_KMS
+  if (w_pool->sink->display->drm_fd >= 0)
+    meta = gst_buffer_add_wayland_meta_kms (w_buffer, w_pool);
+  else
+    meta = gst_buffer_add_wayland_meta (w_buffer, w_pool);
+#else
   meta = gst_buffer_add_wayland_meta (w_buffer, w_pool);
+#endif
   if (meta == NULL) {
     gst_buffer_unref (w_buffer);
     goto no_buffer;
@@ -281,6 +367,13 @@ gst_wayland_buffer_pool_new (GstWaylandSink * waylandsink)
   pool = g_object_new (GST_TYPE_WAYLAND_BUFFER_POOL, NULL);
   pool->sink = gst_object_ref (waylandsink);
 
+#ifdef HAVE_WAYLAND_KMS
+  if (kms_create (pool->sink->display->drm_fd, &pool->kms)) {
+    GST_WARNING_OBJECT (pool, "kms_create failed");
+    return NULL;
+  }
+#endif
+
   return GST_BUFFER_POOL_CAST (pool);
 }
 
@@ -299,12 +392,18 @@ gst_wayland_buffer_pool_class_init (GstWaylandBufferPoolClass * klass)
 static void
 gst_wayland_buffer_pool_init (GstWaylandBufferPool * pool)
 {
+  pool->kms = NULL;
 }
 
 static void
 gst_wayland_buffer_pool_finalize (GObject * object)
 {
   GstWaylandBufferPool *pool = GST_WAYLAND_BUFFER_POOL_CAST (object);
+
+#ifdef HAVE_WAYLAND_KMS
+  if (pool->kms)
+    kms_destroy (&pool->kms);
+#endif
 
   gst_object_unref (pool->sink);
 
