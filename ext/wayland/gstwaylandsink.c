@@ -667,12 +667,12 @@ gst_wayland_sink_propose_allocation (GstBaseSink * bsink, GstQuery * query)
     size = info.size;
 
     config = gst_buffer_pool_get_config (pool);
-    gst_buffer_pool_config_set_params (config, caps, size, 2, 0);
+    gst_buffer_pool_config_set_params (config, caps, size, 3, 0);
     if (!gst_buffer_pool_set_config (pool, config))
       goto config_failed;
   }
   if (pool) {
-    gst_query_add_allocation_pool (query, pool, size, 2, 0);
+    gst_query_add_allocation_pool (query, pool, size, 3, 0);
     gst_object_unref (pool);
   }
 
