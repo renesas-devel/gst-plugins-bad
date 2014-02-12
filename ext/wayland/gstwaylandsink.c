@@ -91,7 +91,7 @@ gst_wayland_sink_propose_allocation (GstBaseSink * bsink, GstQuery * query);
 static gboolean gst_wayland_sink_render (GstBaseSink * bsink,
     GstBuffer * buffer);
 
-static struct display *create_display (void);
+static gboolean create_display (GstWaylandSink * sink);
 static void registry_handle_global (void *data, struct wl_registry *registry,
     uint32_t id, const char *interface, uint32_t version);
 static void frame_redraw_callback (void *data,
@@ -184,7 +184,10 @@ gst_wayland_sink_class_init (GstWaylandSinkClass * klass)
 static void
 gst_wayland_sink_init (GstWaylandSink * sink)
 {
-  sink->display = NULL;
+  sink->display = g_malloc0 (sizeof (struct display));
+  if (!sink->display)
+    GST_ELEMENT_ERROR (sink, RESOURCE, NO_SPACE_LEFT,
+        ("Could not allocate display"), ("Could not allocate display"));
   sink->display->drm_fd = -1;
 
   sink->window = NULL;
@@ -243,7 +246,7 @@ destroy_display (struct display *display)
   if (display->drm_fd >= 0)
     close (display->drm_fd);
 
-  free (display);
+  g_free (display);
 }
 
 static void
@@ -395,17 +398,15 @@ static const struct wl_registry_listener registry_listener = {
   registry_handle_global
 };
 
-static struct display *
-create_display (void)
+static gboolean
+create_display (GstWaylandSink * sink)
 {
   struct display *display;
 
-  display = malloc (sizeof *display);
-  display->display = wl_display_connect (NULL);
+  display = sink->display;
 
   if (display->display == NULL) {
-    free (display);
-    return NULL;
+    return FALSE;
   }
 
   display->registry = wl_display_get_registry (display->display);
@@ -416,12 +417,12 @@ create_display (void)
 #ifdef HAVE_WAYLAND_KMS
   if (!display->wl_kms && !display->shm) {
     GST_ERROR ("Both wl_kms and wl_shm global objects couldn't be obtained");
-    return NULL;
+    return FALSE;
   }
 #else
   if (display->shm == NULL) {
     GST_ERROR ("No wl_shm global..");
-    return NULL;
+    return FALSE;
   }
 #endif
 
@@ -430,25 +431,25 @@ create_display (void)
 #ifdef HAVE_WAYLAND_KMS
   if (display->wl_kms && !display->kms_argb_supported) {
     GST_ERROR ("wl_kms format isn't WL_KMS_FORMAT_ARGB8888");
-    return NULL;
+    return FALSE;
   }
 
   wl_display_roundtrip (display->display);
 
   if (!display->authenticated) {
     GST_ERROR ("Authentication failed...");
-    return NULL;
+    return FALSE;
   }
 #else
   if (!(display->formats & (1 << WL_SHM_FORMAT_XRGB8888))) {
     GST_ERROR ("WL_SHM_FORMAT_XRGB32 not available");
-    return NULL;
+    return FALSE;
   }
 #endif
 
   wl_display_get_fd (display->display);
 
-  return display;
+  return TRUE;
 }
 
 static gboolean
@@ -593,21 +594,17 @@ static gboolean
 gst_wayland_sink_start (GstBaseSink * bsink)
 {
   GstWaylandSink *sink = (GstWaylandSink *) bsink;
-  gboolean result = TRUE;
 
   GST_DEBUG_OBJECT (sink, "start");
 
-  if (!sink->display)
-    sink->display = create_display ();
-
-  if (sink->display == NULL) {
+  if (!create_display (sink)) {
     GST_ELEMENT_ERROR (bsink, RESOURCE, OPEN_READ_WRITE,
         ("Could not initialise Wayland output"),
         ("Could not create Wayland display"));
     return FALSE;
   }
 
-  return result;
+  return TRUE;
 }
 
 static gboolean
