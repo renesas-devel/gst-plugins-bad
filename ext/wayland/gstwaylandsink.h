@@ -114,6 +114,8 @@ struct _GstWaylandSink
   gint video_width;
   gint video_height;
   uint32_t format;
+
+  gboolean ext_display;
 };
 
 struct _GstWaylandSinkClass
