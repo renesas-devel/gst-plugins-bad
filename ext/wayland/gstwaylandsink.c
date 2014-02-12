@@ -425,12 +425,13 @@ create_display (GstWaylandSink * sink)
 
 #ifdef HAVE_WAYLAND_KMS
   if (!display->wl_kms && !display->shm) {
-    GST_ERROR ("Both wl_kms and wl_shm global objects couldn't be obtained");
+    GST_ERROR_OBJECT (sink,
+        "Both wl_kms and wl_shm global objects couldn't be obtained");
     return FALSE;
   }
 #else
   if (display->shm == NULL) {
-    GST_ERROR ("No wl_shm global..");
+    GST_ERROR_OBJECT (sink, "No wl_shm global..");
     return FALSE;
   }
 #endif
@@ -439,19 +440,19 @@ create_display (GstWaylandSink * sink)
 
 #ifdef HAVE_WAYLAND_KMS
   if (display->wl_kms && !display->kms_argb_supported) {
-    GST_ERROR ("wl_kms format isn't WL_KMS_FORMAT_ARGB8888");
+    GST_ERROR_OBJECT (sink, "wl_kms format isn't WL_KMS_FORMAT_ARGB8888");
     return FALSE;
   }
 
   wl_display_roundtrip (display->display);
 
   if (!display->authenticated) {
-    GST_ERROR ("Authentication failed...");
+    GST_ERROR_OBJECT (sink, "Authentication failed...");
     return FALSE;
   }
 #else
   if (!(display->formats & (1 << WL_SHM_FORMAT_XRGB8888))) {
-    GST_ERROR ("WL_SHM_FORMAT_XRGB32 not available");
+    GST_ERROR_OBJECT (sink, "WL_SHM_FORMAT_XRGB32 not available");
     return FALSE;
   }
 #endif
