@@ -800,9 +800,8 @@ gst_wayland_sink_render (GstBaseSink * bsink, GstBuffer * buffer)
 
   meta = gst_buffer_get_wl_meta (buffer);
 
-  if (window->redraw_pending) {
+  while (window->redraw_pending)
     wl_display_dispatch (display->display);
-  }
 
   if (meta && meta->sink == sink) {
     GST_LOG_OBJECT (sink, "buffer %p from our pool, writing directly", buffer);
