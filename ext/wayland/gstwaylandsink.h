@@ -85,10 +85,9 @@ struct window
   struct wl_shell_surface *shell_surface;
   struct wl_buffer *buffer;
   struct wl_callback *callback;
-  guint redraw_pending :1;
   guint init_complete :1;
   guint screen_valid :1;
-
+  guint inbuf_num;
 };
 
 struct shm_pool {

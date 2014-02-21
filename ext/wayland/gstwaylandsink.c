@@ -477,7 +477,7 @@ create_display (GstWaylandSink * sink)
 
   window = malloc (sizeof *window);
   window->display = display;
-  window->redraw_pending = FALSE;
+  window->inbuf_num = 0;
   window->screen_valid = FALSE;
   window->surface = wl_compositor_create_surface (display->compositor);
 
@@ -779,7 +779,7 @@ static void
 frame_redraw_callback (void *data, struct wl_callback *callback, uint32_t time)
 {
   struct window *window = (struct window *) data;
-  window->redraw_pending = FALSE;
+  window->inbuf_num--;
   wl_callback_destroy (callback);
 }
 
@@ -807,7 +807,12 @@ gst_wayland_sink_render (GstBaseSink * bsink, GstBuffer * buffer)
 
   meta = gst_buffer_get_wl_meta (buffer);
 
-  while (window->redraw_pending)
+  /*
+   * Double buffering support.
+   * Waiting for a frame callback when the slots of front and back buffers are
+   * both filled up.
+   */
+  while (window->inbuf_num >= 2)
     wl_display_dispatch_queue (display->display, display->wl_queue);
 
   if (meta && meta->sink == sink) {
@@ -843,7 +848,7 @@ gst_wayland_sink_render (GstBaseSink * bsink, GstBuffer * buffer)
 
   wl_surface_attach (sink->window->surface, meta->wbuffer, 0, 0);
   wl_surface_damage (sink->window->surface, 0, 0, res.w, res.h);
-  window->redraw_pending = TRUE;
+  window->inbuf_num++;
   window->callback = wl_surface_frame (window->surface);
   wl_callback_add_listener (window->callback, &frame_callback_listener, window);
   wl_proxy_set_queue ((struct wl_proxy *) window->callback, display->wl_queue);
