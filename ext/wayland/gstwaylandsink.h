@@ -74,6 +74,7 @@ struct  display
   gint drm_fd;
   gboolean authenticated;
 #endif
+  struct wl_event_queue *wl_queue;
 };
 
 struct window

@@ -538,6 +538,13 @@ create_display (GstWaylandSink * sink)
 
   wl_display_get_fd (display->display);
 
+  /* Create a new event queue for frame callback */
+  display->wl_queue = wl_display_create_queue (display->display);
+  if (!display->wl_queue) {
+    GST_ERROR_OBJECT (sink, "Failed to create an event queue");
+    return FALSE;
+  }
+
   return TRUE;
 }
 
@@ -801,7 +808,7 @@ gst_wayland_sink_render (GstBaseSink * bsink, GstBuffer * buffer)
   meta = gst_buffer_get_wl_meta (buffer);
 
   while (window->redraw_pending)
-    wl_display_dispatch (display->display);
+    wl_display_dispatch_queue (display->display, display->wl_queue);
 
   if (meta && meta->sink == sink) {
     GST_LOG_OBJECT (sink, "buffer %p from our pool, writing directly", buffer);
@@ -839,6 +846,7 @@ gst_wayland_sink_render (GstBaseSink * bsink, GstBuffer * buffer)
   window->redraw_pending = TRUE;
   window->callback = wl_surface_frame (window->surface);
   wl_callback_add_listener (window->callback, &frame_callback_listener, window);
+  wl_proxy_set_queue ((struct wl_proxy *) window->callback, display->wl_queue);
   wl_surface_commit (window->surface);
   wl_display_dispatch (display->display);
 
