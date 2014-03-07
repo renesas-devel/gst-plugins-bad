@@ -853,7 +853,9 @@ gst_wayland_sink_render (GstBaseSink * bsink, GstBuffer * buffer)
   wl_callback_add_listener (window->callback, &frame_callback_listener, window);
   wl_proxy_set_queue ((struct wl_proxy *) window->callback, display->wl_queue);
   wl_surface_commit (window->surface);
-  wl_display_dispatch (display->display);
+
+  wl_display_dispatch_pending (display->display);
+  wl_display_flush (display->display);
 
   if (buffer != to_render)
     gst_buffer_unref (to_render);
