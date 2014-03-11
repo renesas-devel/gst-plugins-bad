@@ -778,8 +778,15 @@ gst_wayland_sink_preroll (GstBaseSink * bsink, GstBuffer * buffer)
 static void
 frame_redraw_callback (void *data, struct wl_callback *callback, uint32_t time)
 {
-  struct window *window = (struct window *) data;
-  window->inbuf_num--;
+  struct frame_info *f_info = (struct frame_info *) data;
+
+  f_info->window->inbuf_num--;
+
+  if (f_info->buffer)
+    gst_buffer_unref (f_info->buffer);
+
+  g_free (f_info);
+
   wl_callback_destroy (callback);
 }
 
@@ -797,6 +804,7 @@ gst_wayland_sink_render (GstBaseSink * bsink, GstBuffer * buffer)
   GstFlowReturn ret;
   struct window *window;
   struct display *display;
+  struct frame_info *f_info;
 
   GST_LOG_OBJECT (sink, "render buffer %p", buffer);
   if (!sink->window->init_complete)
@@ -815,9 +823,23 @@ gst_wayland_sink_render (GstBaseSink * bsink, GstBuffer * buffer)
   while (window->inbuf_num >= 2)
     wl_display_dispatch_queue (display->display, display->wl_queue);
 
+  f_info = g_malloc0 (sizeof (struct frame_info));
+  if (!f_info) {
+    GST_ERROR_OBJECT (sink, "frame_info allocation failed");
+    return GST_FLOW_ERROR;
+  }
+
+  f_info->window = window;
+
   if (meta && meta->sink == sink) {
     GST_LOG_OBJECT (sink, "buffer %p from our pool, writing directly", buffer);
     to_render = buffer;
+
+    /* Once increase a buffer reference count to take a buffer back to
+     * the buffer pool, synchronizing with the frame sync callback.
+     */
+    f_info->buffer = buffer;
+    gst_buffer_ref (f_info->buffer);
   } else {
     GstMapInfo src;
     GST_LOG_OBJECT (sink, "buffer %p not from our pool, copying", buffer);
@@ -850,7 +872,7 @@ gst_wayland_sink_render (GstBaseSink * bsink, GstBuffer * buffer)
   wl_surface_damage (sink->window->surface, 0, 0, res.w, res.h);
   window->inbuf_num++;
   window->callback = wl_surface_frame (window->surface);
-  wl_callback_add_listener (window->callback, &frame_callback_listener, window);
+  wl_callback_add_listener (window->callback, &frame_callback_listener, f_info);
   wl_proxy_set_queue ((struct wl_proxy *) window->callback, display->wl_queue);
   wl_surface_commit (window->surface);
 

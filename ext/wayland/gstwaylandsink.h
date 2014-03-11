@@ -90,6 +90,12 @@ struct window
   guint inbuf_num;
 };
 
+struct frame_info
+{
+  struct window *window;
+  GstBuffer *buffer;
+};
+
 struct shm_pool {
   struct wl_shm_pool *pool;
   size_t size;
