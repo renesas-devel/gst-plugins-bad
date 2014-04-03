@@ -604,7 +604,8 @@ gst_wayland_sink_set_caps (GstBaseSink * bsink, GstCaps * caps)
   }
 
   structure = gst_buffer_pool_get_config (newpool);
-  gst_buffer_pool_config_set_params (structure, caps, size, 3, 0);
+  gst_buffer_pool_config_set_params (structure, caps, size,
+      GST_WAYLAND_BUFFER_POOL_NUM, 0);
   gst_buffer_pool_config_set_allocator (structure, NULL, &params);
   if (!gst_buffer_pool_set_config (newpool, structure))
     goto config_failed;
@@ -762,12 +763,14 @@ gst_wayland_sink_propose_allocation (GstBaseSink * bsink, GstQuery * query)
     size = info.size;
 
     config = gst_buffer_pool_get_config (pool);
-    gst_buffer_pool_config_set_params (config, caps, size, 3, 0);
+    gst_buffer_pool_config_set_params (config, caps, size,
+        GST_WAYLAND_BUFFER_POOL_NUM, 0);
     if (!gst_buffer_pool_set_config (pool, config))
       goto config_failed;
   }
   if (pool) {
-    gst_query_add_allocation_pool (query, pool, size, 3, 0);
+    gst_query_add_allocation_pool (query, pool, size,
+        GST_WAYLAND_BUFFER_POOL_NUM, 0);
     gst_object_unref (pool);
   }
 

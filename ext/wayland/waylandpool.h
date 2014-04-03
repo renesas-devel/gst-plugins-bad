@@ -41,6 +41,8 @@ const GstMetaInfo * gst_wl_meta_get_info (void);
 
 #define gst_buffer_get_wl_meta(b) ((GstWlMeta*)gst_buffer_get_meta((b),GST_WL_META_API_TYPE))
 
+#define GST_WAYLAND_BUFFER_POOL_NUM 3
+
 struct _GstWlMeta {
   GstMeta meta;
 
