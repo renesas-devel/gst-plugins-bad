@@ -44,6 +44,7 @@
 
 #ifdef HAVE_WAYLAND_KMS
 #include "wayland-kms-client-protocol.h"
+#include "gst/allocators/gstdmabuf.h"
 #endif
 
 #define GST_TYPE_WAYLAND_SINK \

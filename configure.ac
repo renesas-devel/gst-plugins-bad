@@ -1218,7 +1218,7 @@ translit(dnm, m, l) AM_CONDITIONAL(USE_WAYLAND, true)
 AG_GST_CHECK_FEATURE(WAYLAND, [wayland sink], wayland , [
   PKG_CHECK_MODULES(WAYLAND, wayland-client >= 1.0.0,
     [HAVE_WAYLAND="yes" ], [ HAVE_WAYLAND="no"])
-  PKG_CHECK_MODULES(WAYLAND_KMS, libdrm libkms wayland-kms,
+  PKG_CHECK_MODULES(WAYLAND_KMS, libdrm libkms wayland-kms gstreamer-allocators-1.0,
     [HAVE_WAYLAND_KMS="yes"
         AC_DEFINE(HAVE_WAYLAND_KMS, 1, [Define if wayland KMS protocol is available])],
        [HAVE_WAYLAND_KMS="no"])

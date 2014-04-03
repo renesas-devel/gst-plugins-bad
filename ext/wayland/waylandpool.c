@@ -54,7 +54,8 @@ gst_wl_meta_free (GstWlMeta * meta, GstBuffer * buffer)
   gst_object_unref (meta->sink);
 #ifdef HAVE_WAYLAND_KMS
   if (meta->kms_bo) {
-    kms_bo_unmap (meta->kms_bo);
+    if (meta->data)
+      kms_bo_unmap (meta->kms_bo);
     kms_bo_destroy (&meta->kms_bo);
   } else
     munmap (meta->data, meta->size);
@@ -91,8 +92,15 @@ static gboolean
 wayland_buffer_pool_set_config (GstBufferPool * pool, GstStructure * config)
 {
   GstWaylandBufferPool *wpool = GST_WAYLAND_BUFFER_POOL_CAST (pool);
+#ifdef HAVE_WAYLAND_KMS
+  GstAllocationParams params;
+#endif
   GstVideoInfo info;
   GstCaps *caps;
+
+  if (wpool->allocator)
+    gst_object_unref (wpool->allocator);
+  wpool->allocator = NULL;
 
   if (!gst_buffer_pool_config_get_params (config, &caps, NULL, NULL, NULL))
     goto wrong_config;
@@ -106,6 +114,14 @@ wayland_buffer_pool_set_config (GstBufferPool * pool, GstStructure * config)
 
   GST_LOG_OBJECT (pool, "%dx%d, caps %" GST_PTR_FORMAT, info.width, info.height,
       caps);
+#ifdef HAVE_WAYLAND_KMS
+  if (!gst_buffer_pool_config_get_allocator (config, &wpool->allocator,
+                                             &params))
+    goto wrong_allocator;
+
+  if (wpool->allocator)
+    gst_object_ref (wpool->allocator);
+#endif
 
   /*Fixme: Enable metadata checking handling based on the config of pool */
 
@@ -116,6 +132,11 @@ wayland_buffer_pool_set_config (GstBufferPool * pool, GstStructure * config)
 
   return GST_BUFFER_POOL_CLASS (parent_class)->set_config (pool, config);
   /* ERRORS */
+wrong_allocator:
+  {
+    GST_WARNING_OBJECT (pool, "no allocator");
+    return FALSE;
+  }
 wrong_config:
   {
     GST_WARNING_OBJECT (pool, "invalid config");
@@ -288,15 +309,8 @@ gst_buffer_add_wayland_meta_kms (GstBuffer * buffer,
     return NULL;
   }
 
-  err = kms_bo_map (wmeta->kms_bo, &data);
-  if (err) {
-    GST_ERROR ("Failed to map kms bo");
-    return NULL;
-  }
-
   kms_bo_get_prop (wmeta->kms_bo, KMS_PITCH, (guint *) & stride[0]);
 
-  wmeta->data = data;
   wmeta->size = stride[0] * wpool->height;
 
   kms_bo_get_prop (wmeta->kms_bo, KMS_HANDLE, &handle);
@@ -313,9 +327,25 @@ gst_buffer_add_wayland_meta_kms (GstBuffer * buffer,
   wmeta->wbuffer = wl_kms_create_buffer (sink->display->wl_kms, prime_fd,
       wpool->width, wpool->height, stride[0], WL_KMS_FORMAT_ARGB8888, 0);
 
-  gst_buffer_append_memory (buffer,
-      gst_memory_new_wrapped (GST_MEMORY_FLAG_NO_SHARE, data,
-          wmeta->size, 0, wmeta->size, NULL, NULL));
+  if (wpool->allocator &&
+      g_strcmp0 (wpool->allocator->mem_type, GST_ALLOCATOR_DMABUF) == 0) {
+    gst_buffer_append_memory (buffer,
+        gst_dmabuf_allocator_alloc (wpool->allocator, prime_fd, wmeta->size));
+
+    wmeta->data = NULL;
+  } else {
+    err = kms_bo_map (wmeta->kms_bo, &data);
+    if (err) {
+      GST_ERROR ("Failed to map kms bo");
+      return NULL;
+    }
+
+    wmeta->data = data;
+
+    gst_buffer_append_memory (buffer,
+        gst_memory_new_wrapped (GST_MEMORY_FLAG_NO_SHARE, data,
+            wmeta->size, 0, wmeta->size, NULL, NULL));
+  }
 
   gst_buffer_add_video_meta_full (buffer, GST_VIDEO_FRAME_FLAG_NONE,
       GST_VIDEO_FORMAT_BGRA, (int) wpool->width, (int) wpool->height, 1, offset,
@@ -401,6 +431,10 @@ gst_wayland_buffer_pool_finalize (GObject * object)
   GstWaylandBufferPool *pool = GST_WAYLAND_BUFFER_POOL_CAST (object);
 
 #ifdef HAVE_WAYLAND_KMS
+  if (pool->allocator)
+    gst_object_unref (pool->allocator);
+  pool->allocator = NULL;
+
   if (pool->kms)
     kms_destroy (&pool->kms);
 #endif

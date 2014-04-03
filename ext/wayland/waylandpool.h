@@ -76,6 +76,7 @@ struct _GstWaylandBufferPool
 
 #ifdef HAVE_WAYLAND_KMS
   struct kms_driver *kms;
+  GstAllocator *allocator;
 #endif
 };
 
