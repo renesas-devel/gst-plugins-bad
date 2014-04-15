@@ -693,8 +693,16 @@ static gboolean
 gst_wayland_sink_stop (GstBaseSink * bsink)
 {
   GstWaylandSink *sink = (GstWaylandSink *) bsink;
+  struct window *window;
+  struct display *display;
 
   GST_DEBUG_OBJECT (sink, "stop");
+
+  window = sink->window;
+  display = sink->display;
+
+  while (window->inbuf_num > 0)
+    wl_display_dispatch_queue (display->display, display->wl_queue);
 
   if (sink->pool) {
     gst_object_unref (sink->pool);
