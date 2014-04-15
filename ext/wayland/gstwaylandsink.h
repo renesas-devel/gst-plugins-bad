@@ -83,7 +83,6 @@ struct window
   int width, height;
   struct wl_surface *surface;
   struct wl_shell_surface *shell_surface;
-  struct wl_buffer *buffer;
   struct wl_callback *callback;
   guint init_complete :1;
   guint screen_valid :1;
