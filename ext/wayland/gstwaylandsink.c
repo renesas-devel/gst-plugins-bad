@@ -247,9 +247,11 @@ destroy_display (struct display *display, gboolean ext_display)
   if (display->compositor)
     wl_compositor_destroy (display->compositor);
 
-  wl_display_flush (display->display);
-  if (!ext_display)
-    wl_display_disconnect (display->display);
+  if (display->display) {
+    wl_display_flush (display->display);
+    if (!ext_display)
+      wl_display_disconnect (display->display);
+  }
 
   if (display->drm_fd >= 0)
     close (display->drm_fd);
