@@ -807,9 +807,10 @@ frame_redraw_callback (void *data, struct wl_callback *callback, uint32_t time)
   if (f_info->buffer)
     gst_buffer_unref (f_info->buffer);
 
-  g_free (f_info);
-
   wl_callback_destroy (callback);
+  f_info->window->callback = NULL;
+
+  g_free (f_info);
 }
 
 static const struct wl_callback_listener frame_callback_listener = {
