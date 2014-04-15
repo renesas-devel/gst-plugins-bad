@@ -84,6 +84,7 @@ static GstCaps *gst_wayland_sink_get_caps (GstBaseSink * bsink,
     GstCaps * filter);
 static gboolean gst_wayland_sink_set_caps (GstBaseSink * bsink, GstCaps * caps);
 static gboolean gst_wayland_sink_start (GstBaseSink * bsink);
+static gboolean gst_wayland_sink_stop (GstBaseSink * bsink);
 static gboolean gst_wayland_sink_preroll (GstBaseSink * bsink,
     GstBuffer * buffer);
 static gboolean
@@ -172,6 +173,7 @@ gst_wayland_sink_class_init (GstWaylandSinkClass * klass)
   gstbasesink_class->get_caps = GST_DEBUG_FUNCPTR (gst_wayland_sink_get_caps);
   gstbasesink_class->set_caps = GST_DEBUG_FUNCPTR (gst_wayland_sink_set_caps);
   gstbasesink_class->start = GST_DEBUG_FUNCPTR (gst_wayland_sink_start);
+  gstbasesink_class->stop = GST_DEBUG_FUNCPTR (gst_wayland_sink_stop);
   gstbasesink_class->preroll = GST_DEBUG_FUNCPTR (gst_wayland_sink_preroll);
   gstbasesink_class->propose_allocation =
       GST_DEBUG_FUNCPTR (gst_wayland_sink_propose_allocation);
@@ -682,6 +684,21 @@ gst_wayland_sink_start (GstBaseSink * bsink)
         ("Could not initialise Wayland output"),
         ("Could not create Wayland display"));
     return FALSE;
+  }
+
+  return TRUE;
+}
+
+static gboolean
+gst_wayland_sink_stop (GstBaseSink * bsink)
+{
+  GstWaylandSink *sink = (GstWaylandSink *) bsink;
+
+  GST_DEBUG_OBJECT (sink, "stop");
+
+  if (sink->pool) {
+    gst_object_unref (sink->pool);
+    sink->pool = NULL;
   }
 
   return TRUE;
