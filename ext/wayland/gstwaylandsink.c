@@ -474,7 +474,7 @@ create_display (GstWaylandSink * sink)
 
   wl_display_roundtrip (display->display);
 
-  window = malloc (sizeof *window);
+  window = g_malloc0 (sizeof *window);
   window->display = display;
   window->inbuf_num = 0;
   window->screen_valid = FALSE;
