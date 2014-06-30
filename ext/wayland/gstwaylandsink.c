@@ -725,7 +725,7 @@ gst_wayland_sink_propose_allocation (GstBaseSink * bsink, GstQuery * query)
   guint size;
   gboolean need_pool;
 #ifdef HAVE_WAYLAND_KMS
-/*  GstAllocator *allocator; */
+  GstAllocator *allocator;
   GstAllocationParams params;
 #endif
 
@@ -781,14 +781,11 @@ gst_wayland_sink_propose_allocation (GstBaseSink * bsink, GstQuery * query)
   if (pool) {
     gst_query_add_allocation_pool (query, pool, size,
         GST_WAYLAND_BUFFER_POOL_NUM, GST_WAYLAND_BUFFER_POOL_NUM);
-/* This implementation will kick the handling of dmabuf descriptors and
-   the descriptors will be passed to the upstream plugin.
 #ifdef HAVE_WAYLAND_KMS
     allocator = gst_dmabuf_allocator_new ();
     gst_query_add_allocation_param (query, allocator, &params);
     gst_object_unref (allocator);
 #endif
-*/
     gst_object_unref (pool);
   }
 
