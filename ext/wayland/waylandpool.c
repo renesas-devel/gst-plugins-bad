@@ -288,6 +288,7 @@ gst_buffer_add_wayland_meta_kms (GstBuffer * buffer,
   struct drm_gem_flink fl;
   guint32 handle;
   gint prime_fd;
+  gint dmabuf_fd;
   unsigned attr[] = {
     KMS_BO_TYPE, KMS_BO_TYPE_SCANOUT_X8R8G8B8,
     KMS_WIDTH, 0,
@@ -329,8 +330,15 @@ gst_buffer_add_wayland_meta_kms (GstBuffer * buffer,
 
   if (wpool->allocator &&
       g_strcmp0 (wpool->allocator->mem_type, GST_ALLOCATOR_DMABUF) == 0) {
+    err = drmPrimeHandleToFD (sink->display->drm_fd, handle, DRM_CLOEXEC,
+        &dmabuf_fd);
+    if (err) {
+      GST_ERROR ("drmPrimeHandleToFD failed. %s\n", strerror (errno));
+      return NULL;
+    }
+
     gst_buffer_append_memory (buffer,
-        gst_dmabuf_allocator_alloc (wpool->allocator, prime_fd, wmeta->size));
+        gst_dmabuf_allocator_alloc (wpool->allocator, dmabuf_fd, wmeta->size));
 
     wmeta->data = NULL;
   } else {
