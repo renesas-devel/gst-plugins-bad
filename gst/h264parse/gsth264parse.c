@@ -1622,7 +1622,7 @@ gst_h264_parse_write_nal_prefix (GstH264Parse * h264parse, GstBuffer * nal)
       while (offset + nal_length <= GST_BUFFER_SIZE (nal)) {
         nalu_size = 0;
         for (i = 0; i < nal_length; i++)
-          nalu_size = (nalu_size << 8) | GST_BUFFER_DATA (nal)[i];
+          nalu_size = (nalu_size << 8) | GST_BUFFER_DATA (nal)[i + offset];
         if (nalu_size > GST_BUFFER_SIZE (nal) - nal_length - offset) {
           GST_WARNING_OBJECT (h264parse, "NAL size %u is larger than buffer, "
               "reducing it to the buffer size: %u", nalu_size,
@@ -1931,7 +1931,7 @@ gst_h264_parse_push_nal (GstH264Parse * h264parse, GstBuffer * nal,
     nal = gst_h264_parse_write_nal_prefix (h264parse, nal);
 
     /* start of a picture is a good time to insert codec SPS and PPS */
-    if (G_UNLIKELY (h264parse->codec_nals && h264parse->picture_start)) {
+    if (G_UNLIKELY (h264parse->codec_nals)) {
       while (h264parse->codec_nals) {
         GST_DEBUG_OBJECT (h264parse, "inserting codec_nal of size %d into AU",
             GST_BUFFER_SIZE (h264parse->codec_nals->data));
@@ -2137,12 +2137,12 @@ gst_h264_parse_chain_forward (GstH264Parse * h264parse, gboolean discont,
         case NAL_SPS:
           GST_DEBUG_OBJECT (h264parse, "we have an SPS NAL");
           gst_nal_decode_sps (h264parse, &bs);
-	  is_config_nal = TRUE;
+          is_config_nal = TRUE;
           break;
         case NAL_PPS:
           GST_DEBUG_OBJECT (h264parse, "we have a PPS NAL");
           gst_nal_decode_pps (h264parse, &bs);
-	  is_config_nal = TRUE;
+          is_config_nal = TRUE;
           break;
         case NAL_AU_DELIMITER:
           GST_DEBUG_OBJECT (h264parse, "we have an access unit delimiter.");
