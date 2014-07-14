@@ -781,6 +781,12 @@ gst_wayland_sink_propose_allocation (GstBaseSink * bsink, GstQuery * query)
   if (pool) {
     gst_query_add_allocation_pool (query, pool, size,
         GST_WAYLAND_BUFFER_POOL_NUM, GST_WAYLAND_BUFFER_POOL_NUM);
+    /*
+     * Add the default allocator for the plugins that can't use dmabuf
+     * descriptors.
+     */
+    gst_query_add_allocation_param (query, gst_allocator_find (NULL), &params);
+
 #ifdef HAVE_WAYLAND_KMS
     allocator = gst_dmabuf_allocator_new ();
     gst_query_add_allocation_param (query, allocator, &params);
