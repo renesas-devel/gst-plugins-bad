@@ -285,9 +285,7 @@ gst_buffer_add_wayland_meta_kms (GstBuffer * buffer,
   gint stride[GST_VIDEO_MAX_PLANES] = { 0 };
   gint err;
   void *data = NULL;
-  struct drm_gem_flink fl;
   guint32 handle;
-  gint prime_fd;
   gint dmabuf_fd;
   unsigned attr[] = {
     KMS_BO_TYPE, KMS_BO_TYPE_SCANOUT_X8R8G8B8,
@@ -316,27 +314,18 @@ gst_buffer_add_wayland_meta_kms (GstBuffer * buffer,
 
   kms_bo_get_prop (wmeta->kms_bo, KMS_HANDLE, &handle);
 
-  fl.handle = handle;
-  fl.name = 0;
-  err = drmIoctl (sink->display->drm_fd, DRM_IOCTL_GEM_FLINK, &fl);
+  err = drmPrimeHandleToFD (sink->display->drm_fd, handle, DRM_CLOEXEC,
+      &dmabuf_fd);
   if (err) {
-    GST_ERROR ("DRM_IOCTL_GEM_FLINK failed. %s\n", strerror (errno));
+    GST_ERROR ("drmPrimeHandleToFD failed. %s\n", strerror (errno));
     return NULL;
   }
-  prime_fd = fl.name;
 
-  wmeta->wbuffer = wl_kms_create_buffer (sink->display->wl_kms, prime_fd,
+  wmeta->wbuffer = wl_kms_create_buffer (sink->display->wl_kms, dmabuf_fd,
       wpool->width, wpool->height, stride[0], WL_KMS_FORMAT_ARGB8888, 0);
 
   if (wpool->allocator &&
       g_strcmp0 (wpool->allocator->mem_type, GST_ALLOCATOR_DMABUF) == 0) {
-    err = drmPrimeHandleToFD (sink->display->drm_fd, handle, DRM_CLOEXEC,
-        &dmabuf_fd);
-    if (err) {
-      GST_ERROR ("drmPrimeHandleToFD failed. %s\n", strerror (errno));
-      return NULL;
-    }
-
     gst_buffer_append_memory (buffer,
         gst_dmabuf_allocator_alloc (wpool->allocator, dmabuf_fd, wmeta->size));
 
