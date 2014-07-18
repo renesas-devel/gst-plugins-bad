@@ -57,8 +57,10 @@ gst_wl_meta_free (GstWlMeta * meta, GstBuffer * buffer)
     if (meta->data)
       kms_bo_unmap (meta->kms_bo);
     kms_bo_destroy (&meta->kms_bo);
-  } else
-    munmap (meta->data, meta->size);
+  } else {
+    if (meta->data)
+      munmap (meta->data, meta->size);
+  }
 #else
   munmap (meta->data, meta->size);
 #endif
