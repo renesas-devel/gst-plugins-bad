@@ -119,7 +119,7 @@ static const wl_VideoFormat formats[] = {
 
 static int fullscreen;
 
-static uint32_t
+uint32_t
 gst_wayland_format_to_wl_format (GstVideoFormat format)
 {
   guint i;

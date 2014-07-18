@@ -133,6 +133,7 @@ struct _GstWaylandSinkClass
 };
 
 GType gst_wayland_sink_get_type (void) G_GNUC_CONST;
+uint32_t gst_wayland_format_to_wl_format (GstVideoFormat format);
 
 G_END_DECLS
 
