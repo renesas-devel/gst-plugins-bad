@@ -71,7 +71,7 @@ struct  display
   uint32_t formats;
 #ifdef HAVE_WAYLAND_KMS
   struct wl_kms *wl_kms;
-  gboolean kms_argb_supported;
+  GList *support_fmt_list;
   gint drm_fd;
   gboolean authenticated;
 #endif

@@ -352,6 +352,12 @@ struct wl_shm_listener shm_listenter = {
 
 #ifdef HAVE_WAYLAND_KMS
 static void
+kms_color_fmt_free (uint32_t * fmt)
+{
+  g_slice_free (uint32_t, fmt);
+}
+
+static void
 kms_device (void *data, struct wl_kms *kms, const char *device)
 {
   struct display *d = data;
@@ -370,9 +376,11 @@ static void
 kms_format (void *data, struct wl_kms *wl_shm, uint32_t format)
 {
   struct display *d = data;
+  uint32_t *fmt;
 
-  if (format == WL_KMS_FORMAT_ARGB8888)
-    d->kms_argb_supported = TRUE;
+  fmt = g_slice_new (uint32_t);
+  *fmt = format;
+  d->support_fmt_list = g_list_append (d->support_fmt_list, fmt);
 
   GST_DEBUG ("kms_formats = 0x%08x", format);
 }
@@ -521,8 +529,8 @@ create_display (GstWaylandSink * sink)
   wl_display_roundtrip (display->display);
 
 #ifdef HAVE_WAYLAND_KMS
-  if (display->wl_kms && !display->kms_argb_supported) {
-    GST_ERROR_OBJECT (sink, "wl_kms format isn't WL_KMS_FORMAT_ARGB8888");
+  if (display->wl_kms && !display->support_fmt_list) {
+    GST_ERROR_OBJECT (sink, "Could not get wl_kms support color format list");
     return FALSE;
   }
 
@@ -567,6 +575,33 @@ gst_wayland_sink_format_from_caps (uint32_t * wl_format, GstCaps * caps)
   return (*wl_format != -1);
 }
 
+#ifdef HAVE_WAYLAND_KMS
+static gboolean
+gst_wayland_sink_is_kms_color_format_supported (GstWaylandSink * sink,
+    uint32_t wl_fmt)
+{
+  GList *l;
+  gboolean ret = FALSE;
+  struct display *display;
+
+  display = sink->display;
+
+  if (display->support_fmt_list == NULL)
+    return FALSE;
+
+  for (l = display->support_fmt_list; l; l = l->next) {
+    uint32_t *fmt = l->data;
+
+    if (*fmt == wl_fmt) {
+      ret = TRUE;
+      break;
+    }
+  }
+
+  return ret;
+}
+#endif
+
 static gboolean
 gst_wayland_sink_set_caps (GstBaseSink * bsink, GstCaps * caps)
 {
@@ -587,11 +622,27 @@ gst_wayland_sink_set_caps (GstBaseSink * bsink, GstCaps * caps)
   if (!gst_wayland_sink_format_from_caps (&sink->format, caps))
     goto invalid_format;
 
+#ifdef HAVE_WAYLAND_KMS
+  if (sink->display->wl_kms) {
+    if (!gst_wayland_sink_is_kms_color_format_supported (sink, sink->format)) {
+      GST_DEBUG_OBJECT (sink, "%s not available",
+          gst_wayland_format_to_string (sink->format));
+      return FALSE;
+    }
+  } else {
+    if (!(sink->display->formats & (1 << sink->format))) {
+      GST_DEBUG_OBJECT (sink, "%s not available",
+          gst_wayland_format_to_string (sink->format));
+      return FALSE;
+    }
+  }
+#else
   if (!(sink->display->formats & (1 << sink->format))) {
     GST_DEBUG_OBJECT (sink, "%s not available",
         gst_wayland_format_to_string (sink->format));
     return FALSE;
   }
+#endif
 
   sink->video_width = info.width;
   sink->video_height = info.height;
@@ -713,6 +764,9 @@ gst_wayland_sink_stop (GstBaseSink * bsink)
     gst_object_unref (sink->pool);
     sink->pool = NULL;
   }
+
+  g_list_free_full (display->support_fmt_list,
+      (GDestroyNotify) kms_color_fmt_free);
 
   return TRUE;
 }
