@@ -1056,15 +1056,19 @@ gst_wayland_sink_query (GstBaseSink * bsink, GstQuery * query)
       GstWaylandBufferPool *wpool;
       const GstStructure *structure;
       GstStructure *str_writable;
-      gint dmabuf;
+      gint dmabuf[GST_VIDEO_MAX_PLANES] = { 0 };
       GstAllocator *allocator;
       gint width, height;
-      gint stride;
+      gint stride[GST_VIDEO_MAX_PLANES] = { 0 };
       const gchar *str;
       const GValue *p_val;
       GValue val = { 0, };
       GstVideoFormat format;
       GstBuffer *buffer;
+      GArray *dmabuf_array;
+      GArray *stride_array;
+      gint n_planes;
+      gint i;
 
       wpool = GST_WAYLAND_BUFFER_POOL_CAST (sink->pool);
 
@@ -1080,8 +1084,10 @@ gst_wayland_sink_query (GstBaseSink * bsink, GstQuery * query)
           "received a videosink_buffer_creation_request query");
 
       gst_structure_get (structure, "width", G_TYPE_INT, &width,
-          "height", G_TYPE_INT, &height, "stride", G_TYPE_INT, &stride,
-          "dmabuf", G_TYPE_INT, &dmabuf, "allocator", G_TYPE_POINTER, &p_val,
+          "height", G_TYPE_INT, &height, "stride", G_TYPE_ARRAY, &stride_array,
+          "dmabuf", G_TYPE_ARRAY, &dmabuf_array,
+          "n_planes", G_TYPE_INT, &n_planes,
+          "allocator", G_TYPE_POINTER, &p_val,
           "format", G_TYPE_STRING, &str, NULL);
 
       allocator = (GstAllocator *) g_value_get_pointer (p_val);
@@ -1098,12 +1104,19 @@ gst_wayland_sink_query (GstBaseSink * bsink, GstQuery * query)
         break;
       }
 
+      for (i = 0; i < n_planes; i++) {
+        dmabuf[i] = g_array_index (dmabuf_array, gint, i);
+        stride[i] = g_array_index (stride_array, gint, i);
+        GST_DEBUG_OBJECT (sink, "plane:%d dmabuf:%d stride:%d\n", i, dmabuf[i],
+            stride[i]);
+      }
+
       GST_DEBUG_OBJECT (sink,
-          "videosink_buffer_creation_request query param: width:%d height:%d stride:%d dmabuf:%d allocator:%p format:%s",
-          width, height, stride, dmabuf, allocator, str);
+          "videosink_buffer_creation_request query param: width:%d height:%d allocator:%p format:%s",
+          width, height, allocator, str);
 
       buffer = gst_wayland_buffer_pool_create_buffer_from_dmabuf (wpool,
-          dmabuf, allocator, width, height, stride, format);
+          dmabuf, allocator, width, height, stride, format, n_planes);
       if (buffer == NULL) {
         GST_WARNING_OBJECT (sink,
             "failed to create a buffer from videosink_buffer_creation_request query");

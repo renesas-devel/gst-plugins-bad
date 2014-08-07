@@ -43,8 +43,9 @@ const GstMetaInfo * gst_wl_meta_get_info (void);
 
 #ifdef HAVE_WAYLAND_KMS
 GstBuffer * gst_wayland_buffer_pool_create_buffer_from_dmabuf (
-    GstWaylandBufferPool * wpool, gint dmabuf, GstAllocator *allocator,
-    gint width, gint height, gint in_stride, GstVideoFormat format);
+    GstWaylandBufferPool * wpool, gint dmabuf[GST_VIDEO_MAX_PLANES],
+    GstAllocator *allocator, gint width, gint height,
+    gint in_stride[GST_VIDEO_MAX_PLANES], GstVideoFormat format, gint n_planes);
 #endif
 
 #define GST_WAYLAND_BUFFER_POOL_NUM 3
