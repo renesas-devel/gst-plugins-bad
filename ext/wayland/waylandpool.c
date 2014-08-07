@@ -125,13 +125,11 @@ gst_wayland_buffer_pool_create_buffer_from_dmabuf (GstWaylandBufferPool * wpool,
   wmeta = (GstWlMeta *) gst_buffer_add_meta (buffer, GST_WL_META_INFO, NULL);
   wmeta->sink = gst_object_ref (sink);
 
-  wmeta->size = in_stride * height;
-
   wmeta->wbuffer = wl_kms_create_buffer (sink->display->wl_kms, dmabuf,
       width, height, in_stride, gst_wayland_format_to_wl_format (format), 0);
 
   gst_buffer_append_memory (buffer,
-      gst_dmabuf_allocator_alloc (allocator, dmabuf, wmeta->size));
+      gst_dmabuf_allocator_alloc (allocator, dmabuf, 0));
 
   wmeta->data = NULL;
 
