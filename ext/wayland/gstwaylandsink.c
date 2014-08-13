@@ -95,6 +95,8 @@ static void frame_redraw_callback (void *data,
 static void create_window (GstWaylandSink * sink, struct display *display,
     int width, int height);
 static void shm_pool_destroy (struct shm_pool *pool);
+static gint wayland_sync (GstWaylandSink * sink);
+
 
 typedef struct
 {
@@ -782,16 +784,13 @@ static gboolean
 gst_wayland_sink_stop (GstBaseSink * bsink)
 {
   GstWaylandSink *sink = (GstWaylandSink *) bsink;
-  struct window *window;
   struct display *display;
 
   GST_DEBUG_OBJECT (sink, "stop");
 
-  window = sink->window;
   display = sink->display;
 
-  while (window->inbuf_num > 0)
-    wl_display_dispatch_queue (display->display, display->wl_queue);
+  wayland_sync (sink);
 
   if (sink->pool) {
     gst_object_unref (sink->pool);
@@ -934,6 +933,41 @@ static const struct wl_callback_listener frame_callback_listener = {
   frame_redraw_callback
 };
 
+static void
+wl_sync_callback (void *data, struct wl_callback *callback, uint32_t serial)
+{
+  int *done = data;
+
+  *done = 1;
+  wl_callback_destroy (callback);
+}
+
+static const struct wl_callback_listener wayland_sync_listener = {
+  .done = wl_sync_callback
+};
+
+static gint
+wayland_sync (GstWaylandSink * sink)
+{
+  struct wl_callback *callback;
+  struct display *display;
+  gint ret = 0;
+  gint done = 0;
+
+  display = sink->display;
+
+  callback = wl_display_sync (display->display);
+  wl_callback_add_listener (callback, &wayland_sync_listener, &done);
+  wl_proxy_set_queue ((struct wl_proxy *) callback, display->wl_queue);
+  while (ret >= 0 && !done)
+    ret = wl_display_dispatch_queue (display->display, display->wl_queue);
+
+  if (!done)
+    wl_callback_destroy (callback);
+
+  return ret;
+}
+
 static GstFlowReturn
 gst_wayland_sink_render (GstBaseSink * bsink, GstBuffer * buffer)
 {
@@ -1018,6 +1052,8 @@ gst_wayland_sink_render (GstBaseSink * bsink, GstBuffer * buffer)
 
   wl_display_dispatch_pending (display->display);
   wl_display_flush (display->display);
+
+  wayland_sync (sink);
 
   if (buffer != to_render)
     gst_buffer_unref (to_render);
