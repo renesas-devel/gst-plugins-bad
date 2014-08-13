@@ -84,15 +84,8 @@ struct window
   int width, height;
   struct wl_surface *surface;
   struct wl_shell_surface *shell_surface;
-  struct wl_callback *callback;
   guint init_complete :1;
   guint screen_valid :1;
-};
-
-struct frame_info
-{
-  struct window *window;
-  GstBuffer *buffer;
 };
 
 struct shm_pool {
@@ -133,6 +126,7 @@ struct _GstWaylandSinkClass
 
 GType gst_wayland_sink_get_type (void) G_GNUC_CONST;
 uint32_t gst_wayland_format_to_wl_format (GstVideoFormat format);
+void wayland_buffer_release (void * data, struct wl_buffer * buffer);
 
 G_END_DECLS
 

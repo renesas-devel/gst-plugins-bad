@@ -90,8 +90,6 @@ static gboolean gst_wayland_sink_query (GstBaseSink * bsink, GstQuery * query);
 static gboolean create_display (GstWaylandSink * sink);
 static void registry_handle_global (void *data, struct wl_registry *registry,
     uint32_t id, const char *interface, uint32_t version);
-static void frame_redraw_callback (void *data,
-    struct wl_callback *callback, uint32_t time);
 static void create_window (GstWaylandSink * sink, struct display *display,
     int width, int height);
 static void shm_pool_destroy (struct shm_pool *pool);
@@ -297,9 +295,6 @@ destroy_display (struct display *display, gboolean ext_display)
 static void
 destroy_window (struct window *window)
 {
-  if (window->callback)
-    wl_callback_destroy (window->callback);
-
   if (window->shell_surface)
     wl_shell_surface_destroy (window->shell_surface);
 
@@ -913,24 +908,6 @@ gst_wayland_sink_preroll (GstBaseSink * bsink, GstBuffer * buffer)
 }
 
 static void
-frame_redraw_callback (void *data, struct wl_callback *callback, uint32_t time)
-{
-  struct frame_info *f_info = (struct frame_info *) data;
-
-  if (f_info->buffer)
-    gst_buffer_unref (f_info->buffer);
-
-  wl_callback_destroy (callback);
-  f_info->window->callback = NULL;
-
-  g_free (f_info);
-}
-
-static const struct wl_callback_listener frame_callback_listener = {
-  frame_redraw_callback
-};
-
-static void
 wl_sync_callback (void *data, struct wl_callback *callback, uint32_t serial)
 {
   int *done = data;
@@ -965,6 +942,13 @@ wayland_sync (GstWaylandSink * sink)
   return ret;
 }
 
+void
+wayland_buffer_release (void *data, struct wl_buffer *buffer)
+{
+  GstBuffer *buf = (GstBuffer *) data;
+  gst_buffer_unref (buf);
+}
+
 static GstFlowReturn
 gst_wayland_sink_render (GstBaseSink * bsink, GstBuffer * buffer)
 {
@@ -975,7 +959,6 @@ gst_wayland_sink_render (GstBaseSink * bsink, GstBuffer * buffer)
   GstFlowReturn ret;
   struct window *window;
   struct display *display;
-  struct frame_info *f_info;
 
   GST_LOG_OBJECT (sink, "render buffer %p", buffer);
   if (!sink->window->init_complete)
@@ -986,23 +969,9 @@ gst_wayland_sink_render (GstBaseSink * bsink, GstBuffer * buffer)
 
   meta = gst_buffer_get_wl_meta (buffer);
 
-  f_info = g_malloc0 (sizeof (struct frame_info));
-  if (!f_info) {
-    GST_ERROR_OBJECT (sink, "frame_info allocation failed");
-    return GST_FLOW_ERROR;
-  }
-
-  f_info->window = window;
-
   if (meta && meta->sink == sink) {
     GST_LOG_OBJECT (sink, "buffer %p from our pool, writing directly", buffer);
     to_render = buffer;
-
-    /* Once increase a buffer reference count to take a buffer back to
-     * the buffer pool, synchronizing with the frame sync callback.
-     */
-    f_info->buffer = buffer;
-    gst_buffer_ref (f_info->buffer);
   } else {
     GstMapInfo src;
     GST_LOG_OBJECT (sink, "buffer %p not from our pool, copying", buffer);
@@ -1031,11 +1000,13 @@ gst_wayland_sink_render (GstBaseSink * bsink, GstBuffer * buffer)
 
   gst_video_sink_center_rect (src, dst, &res, FALSE);
 
+  /* Once increase a buffer reference count to take a buffer back to
+   * the buffer pool, synchronizing with the frame sync callback.
+   */
+  gst_buffer_ref (buffer);
+
   wl_surface_attach (sink->window->surface, meta->wbuffer, 0, 0);
   wl_surface_damage (sink->window->surface, 0, 0, res.w, res.h);
-  window->callback = wl_surface_frame (window->surface);
-  wl_callback_add_listener (window->callback, &frame_callback_listener, f_info);
-  wl_proxy_set_queue ((struct wl_proxy *) window->callback, display->wl_queue);
   wl_surface_commit (window->surface);
 
   wl_display_dispatch_pending (display->display);

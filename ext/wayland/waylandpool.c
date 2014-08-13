@@ -106,6 +106,10 @@ gst_wl_meta_get_info (void)
   return wl_meta_info;
 }
 
+static const struct wl_buffer_listener wayland_buffer_listener = {
+  .release = wayland_buffer_release
+};
+
 #ifdef HAVE_WAYLAND_KMS
 GstBuffer *
 gst_wayland_buffer_pool_create_buffer_from_dmabuf (GstWaylandBufferPool * wpool,
@@ -131,6 +135,9 @@ gst_wayland_buffer_pool_create_buffer_from_dmabuf (GstWaylandBufferPool * wpool,
       wl_kms_create_mp_buffer (sink->display->wl_kms, width, height,
       gst_wayland_format_to_wl_format (format), dmabuf[0], in_stride[0],
       dmabuf[1], in_stride[1], dmabuf[2], in_stride[2]);
+  wl_proxy_set_queue ((struct wl_proxy *) wmeta->wbuffer,
+      sink->display->wl_queue);
+  wl_buffer_add_listener (wmeta->wbuffer, &wayland_buffer_listener, buffer);
 
   for (i = 0; i < n_planes; i++) {
     gst_buffer_append_memory (buffer,
@@ -444,6 +451,10 @@ wayland_buffer_pool_alloc (GstBufferPool * pool, GstBuffer ** buffer,
     goto no_buffer;
   }
   *buffer = w_buffer;
+
+  wl_proxy_set_queue ((struct wl_proxy *) meta->wbuffer,
+      w_pool->sink->display->wl_queue);
+  wl_buffer_add_listener (meta->wbuffer, &wayland_buffer_listener, w_buffer);
 
   return GST_FLOW_OK;
 
