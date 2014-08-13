@@ -87,7 +87,6 @@ struct window
   struct wl_callback *callback;
   guint init_complete :1;
   guint screen_valid :1;
-  guint inbuf_num;
 };
 
 struct frame_info
