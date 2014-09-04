@@ -86,6 +86,8 @@ gst_wayland_sink_propose_allocation (GstBaseSink * bsink, GstQuery * query);
 static gboolean gst_wayland_sink_render (GstBaseSink * bsink,
     GstBuffer * buffer);
 static gboolean gst_wayland_sink_query (GstBaseSink * bsink, GstQuery * query);
+static GstStateChangeReturn gst_wayland_sink_change_state (GstElement * element,
+    GstStateChange transition);
 
 static gboolean create_display (GstWaylandSink * sink);
 static void registry_handle_global (void *data, struct wl_registry *registry,
@@ -211,6 +213,8 @@ gst_wayland_sink_class_init (GstWaylandSinkClass * klass)
       GST_DEBUG_FUNCPTR (gst_wayland_sink_propose_allocation);
   gstbasesink_class->render = GST_DEBUG_FUNCPTR (gst_wayland_sink_render);
   gstbasesink_class->query = GST_DEBUG_FUNCPTR (gst_wayland_sink_query);
+  gstelement_class->change_state =
+      GST_DEBUG_FUNCPTR (gst_wayland_sink_change_state);
 
   g_object_class_install_property (gobject_class, PROP_WAYLAND_DISPLAY,
       g_param_spec_pointer ("wayland-display", "Wayland Display",
@@ -1140,6 +1144,36 @@ gst_wayland_sink_query (GstBaseSink * bsink, GstQuery * query)
 #endif
     default:
       ret = GST_BASE_SINK_CLASS (parent_class)->query (bsink, query);
+      break;
+  }
+
+  return ret;
+}
+
+static GstStateChangeReturn
+gst_wayland_sink_change_state (GstElement * element, GstStateChange transition)
+{
+  GstWaylandSink *sink = GST_WAYLAND_SINK (element);
+  GstStateChangeReturn ret;
+  GstVideoRectangle res;
+
+  ret = GST_ELEMENT_CLASS (parent_class)->change_state (element, transition);
+  if (ret == GST_STATE_CHANGE_FAILURE)
+    return ret;
+
+  switch (transition) {
+    case GST_STATE_CHANGE_PAUSED_TO_READY:
+      if (sink->window) {
+        gst_wayland_sink_center_rect (sink, &res, FALSE);
+
+        /* remove buffer from surface, show nothing */
+        wl_surface_attach (sink->window->surface, NULL, 0, 0);
+        wl_surface_damage (sink->window->surface, 0, 0, res.w, res.h);
+        wl_surface_commit (sink->window->surface);
+        wl_display_flush (sink->display->display);
+        wayland_sync (sink);
+      }
+    default:
       break;
   }
 
