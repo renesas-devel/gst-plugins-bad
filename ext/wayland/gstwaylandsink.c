@@ -949,11 +949,25 @@ wayland_buffer_release (void *data, struct wl_buffer *buffer)
   gst_buffer_unref (buf);
 }
 
+static void
+gst_wayland_sink_center_rect (GstWaylandSink * sink, GstVideoRectangle * result,
+    gboolean scaling)
+{
+  GstVideoRectangle src, dst;
+
+  src.w = sink->video_width;
+  src.h = sink->video_height;
+  dst.w = sink->window->width;
+  dst.h = sink->window->height;
+
+  gst_video_sink_center_rect (src, dst, result, scaling);
+}
+
 static GstFlowReturn
 gst_wayland_sink_render (GstBaseSink * bsink, GstBuffer * buffer)
 {
   GstWaylandSink *sink = GST_WAYLAND_SINK (bsink);
-  GstVideoRectangle src, dst, res;
+  GstVideoRectangle res;
   GstBuffer *to_render;
   GstWlMeta *meta;
   GstFlowReturn ret;
@@ -993,12 +1007,7 @@ gst_wayland_sink_render (GstBaseSink * bsink, GstBuffer * buffer)
     meta = gst_buffer_get_wl_meta (to_render);
   }
 
-  src.w = sink->video_width;
-  src.h = sink->video_height;
-  dst.w = sink->window->width;
-  dst.h = sink->window->height;
-
-  gst_video_sink_center_rect (src, dst, &res, FALSE);
+  gst_wayland_sink_center_rect (sink, &res, FALSE);
 
   /* Once increase a buffer reference count to take a buffer back to
    * the buffer pool, synchronizing with the frame sync callback.
