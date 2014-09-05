@@ -235,6 +235,7 @@ gst_wayland_sink_init (GstWaylandSink * sink)
   sink->shm_pool = NULL;
   sink->pool = NULL;
   sink->ext_display = FALSE;
+  sink->preroll_buffer = NULL;
 
   g_mutex_init (&sink->wayland_lock);
 }
@@ -907,8 +908,15 @@ config_failed:
 static GstFlowReturn
 gst_wayland_sink_preroll (GstBaseSink * bsink, GstBuffer * buffer)
 {
+  GstWaylandSink *sink = GST_WAYLAND_SINK (bsink);
+  GstFlowReturn ret;
+
   GST_DEBUG_OBJECT (bsink, "preroll buffer %p", buffer);
-  return gst_wayland_sink_render (bsink, buffer);
+  ret = gst_wayland_sink_render (bsink, buffer);
+  if (ret == GST_FLOW_OK)
+    sink->preroll_buffer = buffer;
+
+  return ret;
 }
 
 static void
@@ -977,6 +985,14 @@ gst_wayland_sink_render (GstBaseSink * bsink, GstBuffer * buffer)
   GstFlowReturn ret;
   struct window *window;
   struct display *display;
+
+  /* Avoid duplicate rendering of the first frame */
+  if (sink->preroll_buffer) {
+    if (sink->preroll_buffer == buffer)
+      return GST_FLOW_OK;
+    else
+      sink->preroll_buffer = NULL;
+  }
 
   GST_LOG_OBJECT (sink, "render buffer %p", buffer);
   if (!sink->window->init_complete)

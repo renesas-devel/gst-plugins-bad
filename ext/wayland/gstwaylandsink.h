@@ -117,6 +117,8 @@ struct _GstWaylandSink
   uint32_t format;
 
   gboolean ext_display;
+
+  GstBuffer *preroll_buffer;
 };
 
 struct _GstWaylandSinkClass
