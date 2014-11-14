@@ -147,6 +147,7 @@ gst_wayland_buffer_pool_create_buffer_from_dmabuf (GstWaylandBufferPool * wpool,
   }
 
   wmeta->data = NULL;
+  wmeta->kms_bo = NULL;
 
   gst_buffer_add_video_meta_full (buffer, GST_VIDEO_FRAME_FLAG_NONE, format,
       width, height, n_planes, offset, stride);
