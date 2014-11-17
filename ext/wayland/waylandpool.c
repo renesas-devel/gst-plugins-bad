@@ -176,9 +176,11 @@ wayland_buffer_pool_set_config (GstBufferPool * pool, GstStructure * config)
   GstVideoInfo info;
   GstCaps *caps;
 
+#ifdef HAVE_WAYLAND_KMS
   if (wpool->allocator)
     gst_object_unref (wpool->allocator);
   wpool->allocator = NULL;
+#endif
 
   if (!gst_buffer_pool_config_get_params (config, &caps, NULL, NULL, NULL))
     goto wrong_config;
@@ -210,11 +212,13 @@ wayland_buffer_pool_set_config (GstBufferPool * pool, GstStructure * config)
 
   return GST_BUFFER_POOL_CLASS (parent_class)->set_config (pool, config);
   /* ERRORS */
+#ifdef HAVE_WAYLAND_KMS
 wrong_allocator:
   {
     GST_WARNING_OBJECT (pool, "no allocator");
     return FALSE;
   }
+#endif
 wrong_config:
   {
     GST_WARNING_OBJECT (pool, "invalid config");
@@ -501,7 +505,9 @@ gst_wayland_buffer_pool_class_init (GstWaylandBufferPoolClass * klass)
 static void
 gst_wayland_buffer_pool_init (GstWaylandBufferPool * pool)
 {
+#ifdef HAVE_WAYLAND_KMS
   pool->kms = NULL;
+#endif
 }
 
 static void

@@ -229,7 +229,9 @@ gst_wayland_sink_init (GstWaylandSink * sink)
   if (!sink->display)
     GST_ELEMENT_ERROR (sink, RESOURCE, NO_SPACE_LEFT,
         ("Could not allocate display"), ("Could not allocate display"));
+#ifdef HAVE_WAYLAND_KMS
   sink->display->drm_fd = -1;
+#endif
 
   sink->window = NULL;
   sink->shm_pool = NULL;
@@ -290,9 +292,10 @@ destroy_display (struct display *display, gboolean ext_display)
     if (!ext_display)
       wl_display_disconnect (display->display);
   }
-
+#ifdef HAVE_WAYLAND_KMS
   if (display->drm_fd >= 0)
     close (display->drm_fd);
+#endif
 
   g_free (display);
 }
@@ -783,11 +786,15 @@ static gboolean
 gst_wayland_sink_stop (GstBaseSink * bsink)
 {
   GstWaylandSink *sink = (GstWaylandSink *) bsink;
+#ifdef HAVE_WAYLAND_KMS
   struct display *display;
+#endif
 
   GST_DEBUG_OBJECT (sink, "stop");
 
+#ifdef HAVE_WAYLAND_KMS
   display = sink->display;
+#endif
 
   wayland_sync (sink);
 
@@ -795,9 +802,10 @@ gst_wayland_sink_stop (GstBaseSink * bsink)
     gst_object_unref (sink->pool);
     sink->pool = NULL;
   }
-
+#ifdef HAVE_WAYLAND_KMS
   g_list_free_full (display->support_fmt_list,
       (GDestroyNotify) kms_color_fmt_free);
+#endif
 
   return TRUE;
 }
@@ -813,8 +821,8 @@ gst_wayland_sink_propose_allocation (GstBaseSink * bsink, GstQuery * query)
   gboolean need_pool;
 #ifdef HAVE_WAYLAND_KMS
   GstAllocator *allocator;
-  GstAllocationParams params;
 #endif
+  GstAllocationParams params;
 
 #ifdef HAVE_WAYLAND_KMS
   gst_allocation_params_init (&params);
@@ -1070,7 +1078,9 @@ activate_failed:
 static gboolean
 gst_wayland_sink_query (GstBaseSink * bsink, GstQuery * query)
 {
+#ifdef HAVE_WAYLAND_KMS
   GstWaylandSink *sink = GST_WAYLAND_SINK (bsink);
+#endif
   gboolean ret = FALSE;
 
   switch (GST_QUERY_TYPE (query)) {
