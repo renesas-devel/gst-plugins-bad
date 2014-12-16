@@ -702,8 +702,10 @@ gst_wayland_sink_set_caps (GstBaseSink * bsink, GstCaps * caps)
   }
 
   structure = gst_buffer_pool_get_config (newpool);
+#ifdef HAVE_WAYLAND_KMS
   gst_structure_set (structure, "videosink_buffer_creation_request_supported",
       G_TYPE_BOOLEAN, TRUE, NULL);
+#endif
   gst_buffer_pool_config_set_params (structure, caps, size,
       GST_WAYLAND_BUFFER_POOL_NUM, GST_WAYLAND_BUFFER_POOL_NUM);
   gst_buffer_pool_config_set_allocator (structure, NULL, &params);
