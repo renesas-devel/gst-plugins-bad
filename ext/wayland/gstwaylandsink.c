@@ -59,10 +59,20 @@ enum
 GST_DEBUG_CATEGORY (gstwayland_debug);
 #define GST_CAT_DEFAULT gstwayland_debug
 
+#if G_BYTE_ORDER == G_BIG_ENDIAN
+#define CAPS "{xRGB, ARGB}"
+#else
+#define CAPS "{BGRx, BGRA}"
+#endif
+
 static GstStaticPadTemplate sink_template = GST_STATIC_PAD_TEMPLATE ("sink",
     GST_PAD_SINK,
     GST_PAD_ALWAYS,
+#ifdef HAVE_WAYLAND_KMS
     GST_STATIC_CAPS (GST_VIDEO_CAPS_MAKE (GST_VIDEO_FORMATS_ALL))
+#else
+    GST_STATIC_CAPS (GST_VIDEO_CAPS_MAKE (CAPS))
+#endif
     );
 
 /*Fixme: Add more interfaces */
