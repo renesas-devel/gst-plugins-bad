@@ -817,6 +817,7 @@ gst_wayland_sink_stop (GstBaseSink * bsink)
 #ifdef HAVE_WAYLAND_KMS
   g_list_free_full (display->support_fmt_list,
       (GDestroyNotify) kms_color_fmt_free);
+  display->support_fmt_list = NULL;
 #endif
 
   return TRUE;
