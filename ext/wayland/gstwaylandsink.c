@@ -306,8 +306,6 @@ destroy_display (struct display *display, gboolean ext_display)
   if (display->drm_fd >= 0)
     close (display->drm_fd);
 #endif
-
-  g_free (display);
 }
 
 static void
@@ -337,10 +335,8 @@ gst_wayland_sink_finalize (GObject * object)
 
   GST_DEBUG_OBJECT (sink, "Finalizing the sink..");
 
-  if (sink->window)
-    destroy_window (sink->window);
-  if (sink->display)
-    destroy_display (sink->display, sink->ext_display);
+  g_free (sink->display);
+
   if (sink->shm_pool)
     shm_pool_destroy (sink->shm_pool);
 
@@ -798,15 +794,11 @@ static gboolean
 gst_wayland_sink_stop (GstBaseSink * bsink)
 {
   GstWaylandSink *sink = (GstWaylandSink *) bsink;
-#ifdef HAVE_WAYLAND_KMS
   struct display *display;
-#endif
 
   GST_DEBUG_OBJECT (sink, "stop");
 
-#ifdef HAVE_WAYLAND_KMS
   display = sink->display;
-#endif
 
   wayland_sync (sink);
 
@@ -814,6 +806,12 @@ gst_wayland_sink_stop (GstBaseSink * bsink)
     gst_object_unref (sink->pool);
     sink->pool = NULL;
   }
+
+  if (sink->window)
+    destroy_window (sink->window);
+  if (sink->display)
+    destroy_display (display, sink->ext_display);
+
 #ifdef HAVE_WAYLAND_KMS
   g_list_free_full (display->support_fmt_list,
       (GDestroyNotify) kms_color_fmt_free);
