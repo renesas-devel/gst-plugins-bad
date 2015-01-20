@@ -132,11 +132,25 @@ gst_wayland_buffer_pool_create_mp_buffer (GstWaylandBufferPool * wpool,
       gst_wayland_format_to_wl_format (format), dmabuf[0], in_stride[0],
       dmabuf[1], in_stride[1], dmabuf[2], in_stride[2]);
 
-  for (i = 0; i < n_planes; i++)
-    gst_buffer_append_memory (buffer,
-        gst_dmabuf_allocator_alloc (allocator, dmabuf[i], 0));
+  if (allocator && g_strcmp0 (allocator->mem_type, GST_ALLOCATOR_DMABUF) == 0) {
+    for (i = 0; i < n_planes; i++)
+      gst_buffer_append_memory (buffer,
+          gst_dmabuf_allocator_alloc (allocator, dmabuf[i], 0));
 
-  wmeta->data = NULL;
+    wmeta->data = NULL;
+  } else {
+    if (data == NULL) {
+      GST_WARNING_OBJECT (wpool, "couldn't get data pointer");
+      return FALSE;
+    }
+
+    wmeta->data = data[0];
+    wmeta->size = in_stride[0] * height;
+
+    gst_buffer_append_memory (buffer,
+        gst_memory_new_wrapped (GST_MEMORY_FLAG_NO_SHARE, data[0],
+            wmeta->size, 0, wmeta->size, NULL, NULL));
+  }
 
   gst_buffer_add_video_meta_full (buffer, GST_VIDEO_FRAME_FLAG_NONE, format,
       width, height, n_planes, offset, in_stride);
