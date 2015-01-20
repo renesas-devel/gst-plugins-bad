@@ -111,21 +111,18 @@ static const struct wl_buffer_listener wayland_buffer_listener = {
 };
 
 #ifdef HAVE_WAYLAND_KMS
-GstBuffer *
-gst_wayland_buffer_pool_create_buffer_from_dmabuf (GstWaylandBufferPool * wpool,
-    gint dmabuf[GST_VIDEO_MAX_PLANES], GstAllocator * allocator, gint width,
-    gint height, gint in_stride[GST_VIDEO_MAX_PLANES], GstVideoFormat format,
-    gint n_planes)
+static gboolean
+gst_wayland_buffer_pool_create_mp_buffer (GstWaylandBufferPool * wpool,
+    GstBuffer * buffer, gint dmabuf[GST_VIDEO_MAX_PLANES],
+    GstAllocator * allocator, gint width, gint height,
+    void *data[GST_VIDEO_MAX_PLANES], gint in_stride[GST_VIDEO_MAX_PLANES],
+    gsize offset[GST_VIDEO_MAX_PLANES], GstVideoFormat format, gint n_planes)
 {
-  GstBuffer *buffer;
   GstWlMeta *wmeta;
   GstWaylandSink *sink;
-  gsize offset[GST_VIDEO_MAX_PLANES] = { 0 };
   gint i;
 
   sink = wpool->sink;
-
-  buffer = gst_buffer_new ();
 
   wmeta = (GstWlMeta *) gst_buffer_add_meta (buffer, GST_WL_META_INFO, NULL);
   wmeta->sink = gst_object_ref (sink);
@@ -134,19 +131,46 @@ gst_wayland_buffer_pool_create_buffer_from_dmabuf (GstWaylandBufferPool * wpool,
       wl_kms_create_mp_buffer (sink->display->wl_kms, width, height,
       gst_wayland_format_to_wl_format (format), dmabuf[0], in_stride[0],
       dmabuf[1], in_stride[1], dmabuf[2], in_stride[2]);
-  wl_proxy_set_queue ((struct wl_proxy *) wmeta->wbuffer,
-      sink->display->wl_queue);
-  wl_buffer_add_listener (wmeta->wbuffer, &wayland_buffer_listener, buffer);
 
   for (i = 0; i < n_planes; i++)
     gst_buffer_append_memory (buffer,
         gst_dmabuf_allocator_alloc (allocator, dmabuf[i], 0));
 
   wmeta->data = NULL;
-  wmeta->kms_bo = NULL;
 
   gst_buffer_add_video_meta_full (buffer, GST_VIDEO_FRAME_FLAG_NONE, format,
       width, height, n_planes, offset, in_stride);
+
+  return TRUE;
+}
+
+GstBuffer *
+gst_wayland_buffer_pool_create_buffer_from_dmabuf (GstWaylandBufferPool * wpool,
+    gint dmabuf[GST_VIDEO_MAX_PLANES], GstAllocator * allocator, gint width,
+    gint height, gint in_stride[GST_VIDEO_MAX_PLANES], GstVideoFormat format,
+    gint n_planes)
+{
+  GstBuffer *buffer;
+  GstWlMeta *wmeta;
+  gsize offset[GST_VIDEO_MAX_PLANES] = { 0 };
+
+  buffer = gst_buffer_new ();
+
+  if (!gst_wayland_buffer_pool_create_mp_buffer (wpool, buffer, dmabuf,
+          allocator, width, height, NULL, in_stride, offset, format,
+          n_planes)) {
+    GST_WARNING_OBJECT (wpool, "failed to create_mp_buffer");
+    gst_buffer_unref (buffer);
+    return NULL;
+  }
+
+  wmeta = gst_buffer_get_wl_meta (buffer);
+
+  wl_proxy_set_queue ((struct wl_proxy *) wmeta->wbuffer,
+      wpool->sink->display->wl_queue);
+  wl_buffer_add_listener (wmeta->wbuffer, &wayland_buffer_listener, buffer);
+
+  wmeta->kms_bo = NULL;
 
   /* To avoid deattaching meta data when a buffer returns to the buffer pool */
   GST_META_FLAG_SET (wmeta, GST_META_FLAG_POOLED);
