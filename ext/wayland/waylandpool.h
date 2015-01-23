@@ -40,6 +40,10 @@ const GstMetaInfo * gst_wl_meta_get_info (void);
 #define GST_WL_META_INFO  (gst_wl_meta_get_info())
 
 #define gst_buffer_get_wl_meta(b) ((GstWlMeta*)gst_buffer_get_meta((b),GST_WL_META_API_TYPE))
+#ifdef HAVE_WAYLAND_KMS
+#define gst_wl_get_kms_bo_width(i, p) \
+    ((((GST_VIDEO_INFO_PLANE_STRIDE (i, p) + 3) / 4 + 31) >> 5) << 5)
+#endif
 
 #ifdef HAVE_WAYLAND_KMS
 GstBuffer * gst_wayland_buffer_pool_create_buffer_from_dmabuf (
@@ -59,7 +63,7 @@ struct _GstWlMeta {
   void *data;
   size_t size;
 #ifdef HAVE_WAYLAND_KMS
-  struct kms_bo *kms_bo;
+  GPtrArray *kms_bo_array;
 #endif
 };
 

@@ -54,16 +54,26 @@ gst_wl_meta_free (GstWlMeta * meta, GstBuffer * buffer)
 #ifdef HAVE_WAYLAND_KMS
   GstMemory *mem;
   gboolean is_dmabuf;
+  guint n_mem;
+  struct kms_bo *kms_bo;
+  guint i;
 #endif
 
   gst_object_unref (meta->sink);
 #ifdef HAVE_WAYLAND_KMS
-  if (meta->kms_bo) {
-    mem = gst_buffer_get_memory (buffer, 0);
-    is_dmabuf = gst_is_dmabuf_memory (mem);
-    if (!is_dmabuf)
-      kms_bo_unmap (meta->kms_bo);
-    kms_bo_destroy (&meta->kms_bo);
+  if (meta->kms_bo_array) {
+    n_mem = gst_buffer_n_memory (buffer);
+    for (i = 0; i < n_mem; i++) {
+      mem = gst_buffer_get_memory (buffer, i);
+
+      kms_bo = (struct kms_bo *) g_ptr_array_index (meta->kms_bo_array, i);
+
+      is_dmabuf = gst_is_dmabuf_memory (mem);
+      if (!is_dmabuf)
+        kms_bo_unmap (kms_bo);
+      kms_bo_destroy (&kms_bo);
+    }
+    g_ptr_array_unref (meta->kms_bo_array);
   } else {
     if (meta->data)
       munmap (meta->data, meta->size);
@@ -127,11 +137,13 @@ gst_wayland_buffer_pool_create_mp_buffer (GstWaylandBufferPool * wpool,
       return FALSE;
     }
 
-    size = in_stride[0] * height;
+    for (i = 0; i < n_planes; i++) {
+      size = in_stride[i] * height;
 
-    gst_buffer_append_memory (buffer,
-        gst_memory_new_wrapped (GST_MEMORY_FLAG_NO_SHARE, data[0],
-            size, 0, size, NULL, NULL));
+      gst_buffer_append_memory (buffer,
+          gst_memory_new_wrapped (GST_MEMORY_FLAG_NO_SHARE, data[i],
+              size, 0, size, NULL, NULL));
+    }
   }
 
   wmeta->data = NULL;
@@ -169,7 +181,7 @@ gst_wayland_buffer_pool_create_buffer_from_dmabuf (GstWaylandBufferPool * wpool,
       wpool->sink->display->wl_queue);
   wl_buffer_add_listener (wmeta->wbuffer, &wayland_buffer_listener, buffer);
 
-  wmeta->kms_bo = NULL;
+  wmeta->kms_bo_array = NULL;
 
   /* To avoid deattaching meta data when a buffer returns to the buffer pool */
   GST_META_FLAG_SET (wmeta, GST_META_FLAG_POOLED);
@@ -388,7 +400,9 @@ gst_buffer_add_wayland_meta_kms (GstBuffer * buffer,
   void *data[GST_VIDEO_MAX_PLANES] = { NULL };
   guint32 handle;
   gint dmabuf_fd[GST_VIDEO_MAX_PLANES] = { -1 };
-  struct kms_bo *kms_bo;
+  struct kms_bo *kms_bo[GST_VIDEO_MAX_PLANES];
+  guint n_planes;
+  guint i;
   unsigned attr[] = {
     KMS_BO_TYPE, KMS_BO_TYPE_SCANOUT_X8R8G8B8,
     KMS_WIDTH, 0,
@@ -398,45 +412,55 @@ gst_buffer_add_wayland_meta_kms (GstBuffer * buffer,
 
   sink = wpool->sink;
 
-  attr[3] = ((wpool->width + 31) >> 5) << 5;
-  attr[5] = wpool->height;
+  n_planes = GST_VIDEO_INFO_N_PLANES (&wpool->info);
+  for (i = 0; i < n_planes; i++) {
+    /* dumb BOs are treated with 32bpp format as hard-coded in libkms,
+     * so a pixel stride we actually desire should be divided by 4 and
+     * specified as a KMS BO width, which has been implemented
+     * as a macro definition.
+     */
+    attr[3] = gst_wl_get_kms_bo_width (&wpool->info, i);
+    attr[5] = GST_VIDEO_INFO_COMP_HEIGHT (&wpool->info, i);
 
-  err = kms_bo_create (wpool->kms, attr, &kms_bo);
-  if (err) {
-    GST_ERROR ("Failed to create kms bo");
-    return NULL;
-  }
-
-  kms_bo_get_prop (kms_bo, KMS_PITCH, (guint *) & stride[0]);
-
-  kms_bo_get_prop (kms_bo, KMS_HANDLE, &handle);
-
-  err = drmPrimeHandleToFD (sink->display->drm_fd, handle, DRM_CLOEXEC,
-      &dmabuf_fd[0]);
-  if (err) {
-    GST_ERROR ("drmPrimeHandleToFD failed. %s\n", strerror (errno));
-    return NULL;
-  }
-
-  if (wpool->allocator == NULL ||
-      g_strcmp0 (wpool->allocator->mem_type, GST_ALLOCATOR_DMABUF) != 0) {
-    err = kms_bo_map (kms_bo, &data[0]);
+    err = kms_bo_create (wpool->kms, attr, &kms_bo[i]);
     if (err) {
-      GST_ERROR ("Failed to map kms bo");
+      GST_ERROR ("Failed to create kms bo");
       return NULL;
+    }
+
+    kms_bo_get_prop (kms_bo[i], KMS_PITCH, (guint *) & stride[i]);
+
+    kms_bo_get_prop (kms_bo[i], KMS_HANDLE, &handle);
+
+    err = drmPrimeHandleToFD (sink->display->drm_fd, handle, DRM_CLOEXEC,
+        &dmabuf_fd[i]);
+    if (err) {
+      GST_ERROR ("drmPrimeHandleToFD failed. %s\n", strerror (errno));
+      return NULL;
+    }
+
+    if (wpool->allocator == NULL ||
+        g_strcmp0 (wpool->allocator->mem_type, GST_ALLOCATOR_DMABUF) != 0) {
+      err = kms_bo_map (kms_bo[i], &data[i]);
+      if (err) {
+        GST_ERROR ("Failed to map kms bo");
+        return NULL;
+      }
     }
   }
 
   if (!gst_wayland_buffer_pool_create_mp_buffer (wpool, buffer, dmabuf_fd,
           wpool->allocator, wpool->width, wpool->height, data, stride, offset,
-          GST_VIDEO_FORMAT_BGRA, 1)) {
+          GST_VIDEO_INFO_FORMAT (&wpool->info), n_planes)) {
     GST_WARNING_OBJECT (wpool, "failed to create_mp_buffer");
     return NULL;
   }
 
   wmeta = gst_buffer_get_wl_meta (buffer);
 
-  wmeta->kms_bo = kms_bo;
+  wmeta->kms_bo_array = g_ptr_array_new ();
+  for (i = 0; i < n_planes; i++)
+    g_ptr_array_add (wmeta->kms_bo_array, (gpointer) kms_bo[i]);
 
   return wmeta;
 }
