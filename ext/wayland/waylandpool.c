@@ -74,29 +74,6 @@ gst_wl_meta_free (GstWlMeta * meta, GstBuffer * buffer)
   wl_buffer_destroy (meta->wbuffer);
 }
 
-static gboolean
-gst_wl_meta_transform (GstBuffer * dest, GstMeta * meta, GstBuffer * buffer,
-    GQuark type, gpointer data)
-{
-  GstWlMeta *dst_meta, *src_meta;
-
-  src_meta = (GstWlMeta *) meta;
-
-  if (GST_META_TRANSFORM_IS_COPY (type)) {
-    dst_meta = (GstWlMeta *) gst_buffer_add_meta (dest, GST_WL_META_INFO, NULL);
-
-    dst_meta->sink = gst_object_ref (src_meta->sink);
-    dst_meta->wbuffer = src_meta->wbuffer;
-    dst_meta->data = src_meta->data;
-    dst_meta->size = src_meta->size;
-#ifdef HAVE_WAYLAND_KMS
-    dst_meta->kms_bo = src_meta->kms_bo;
-#endif
-  }
-
-  return TRUE;
-}
-
 const GstMetaInfo *
 gst_wl_meta_get_info (void)
 {
@@ -107,7 +84,7 @@ gst_wl_meta_get_info (void)
         gst_meta_register (GST_WL_META_API_TYPE, "GstWlMeta",
         sizeof (GstWlMeta), (GstMetaInitFunction) NULL,
         (GstMetaFreeFunction) gst_wl_meta_free,
-        (GstMetaTransformFunction) gst_wl_meta_transform);
+        (GstMetaTransformFunction) NULL);
     g_once_init_leave (&wl_meta_info, meta);
   }
   return wl_meta_info;
