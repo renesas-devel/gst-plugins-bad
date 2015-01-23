@@ -51,10 +51,17 @@ gst_wl_meta_api_get_type (void)
 static void
 gst_wl_meta_free (GstWlMeta * meta, GstBuffer * buffer)
 {
+#ifdef HAVE_WAYLAND_KMS
+  GstMemory *mem;
+  gboolean is_dmabuf;
+#endif
+
   gst_object_unref (meta->sink);
 #ifdef HAVE_WAYLAND_KMS
   if (meta->kms_bo) {
-    if (meta->data)
+    mem = gst_buffer_get_memory (buffer, 0);
+    is_dmabuf = gst_is_dmabuf_memory (mem);
+    if (!is_dmabuf)
       kms_bo_unmap (meta->kms_bo);
     kms_bo_destroy (&meta->kms_bo);
   } else {
@@ -120,6 +127,7 @@ gst_wayland_buffer_pool_create_mp_buffer (GstWaylandBufferPool * wpool,
 {
   GstWlMeta *wmeta;
   GstWaylandSink *sink;
+  size_t size;
   gint i;
 
   sink = wpool->sink;
@@ -136,21 +144,21 @@ gst_wayland_buffer_pool_create_mp_buffer (GstWaylandBufferPool * wpool,
     for (i = 0; i < n_planes; i++)
       gst_buffer_append_memory (buffer,
           gst_dmabuf_allocator_alloc (allocator, dmabuf[i], 0));
-
-    wmeta->data = NULL;
   } else {
     if (data == NULL) {
       GST_WARNING_OBJECT (wpool, "couldn't get data pointer");
       return FALSE;
     }
 
-    wmeta->data = data[0];
-    wmeta->size = in_stride[0] * height;
+    size = in_stride[0] * height;
 
     gst_buffer_append_memory (buffer,
         gst_memory_new_wrapped (GST_MEMORY_FLAG_NO_SHARE, data[0],
-            wmeta->size, 0, wmeta->size, NULL, NULL));
+            size, 0, size, NULL, NULL));
   }
+
+  wmeta->data = NULL;
+  wmeta->size = 0;
 
   gst_buffer_add_video_meta_full (buffer, GST_VIDEO_FRAME_FLAG_NONE, format,
       width, height, n_planes, offset, in_stride);
