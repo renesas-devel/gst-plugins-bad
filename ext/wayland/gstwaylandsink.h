@@ -105,6 +105,9 @@ struct _GstWaylandSink
   GstVideoSink parent;
 
   struct display *display;
+  GstPoll *wl_fd_poll;
+  GThread *thread;
+
   struct window *window;
   struct shm_pool *shm_pool;
 

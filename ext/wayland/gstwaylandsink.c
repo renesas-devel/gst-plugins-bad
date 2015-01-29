@@ -250,6 +250,8 @@ gst_wayland_sink_init (GstWaylandSink * sink)
   sink->preroll_buffer = NULL;
 
   g_mutex_init (&sink->wayland_lock);
+
+  sink->wl_fd_poll = gst_poll_new (TRUE);
 }
 
 static void
@@ -339,6 +341,8 @@ gst_wayland_sink_finalize (GObject * object)
 
   if (sink->shm_pool)
     shm_pool_destroy (sink->shm_pool);
+
+  gst_poll_free (sink->wl_fd_poll);
 
   g_mutex_clear (&sink->wayland_lock);
 
@@ -506,11 +510,52 @@ static const struct wl_shell_surface_listener shell_surface_listener = {
   handle_popup_done
 };
 
+static gpointer
+gst_wl_display_thread_run (gpointer data)
+{
+  GstWaylandSink *sink = data;
+  struct display *display;
+  GstPollFD pollfd = GST_POLL_FD_INIT;
+
+  display = sink->display;
+
+  pollfd.fd = wl_display_get_fd (display->display);
+  gst_poll_add_fd (sink->wl_fd_poll, &pollfd);
+  gst_poll_fd_ctl_read (sink->wl_fd_poll, &pollfd, TRUE);
+
+  /* main loop */
+  while (1) {
+    while (wl_display_prepare_read_queue (display->display,
+            display->wl_queue) != 0)
+      wl_display_dispatch_queue_pending (display->display, display->wl_queue);
+    wl_display_flush (display->display);
+
+    if (gst_poll_wait (sink->wl_fd_poll, GST_CLOCK_TIME_NONE) < 0) {
+      gboolean normal = (errno == EBUSY);
+      wl_display_cancel_read (display->display);
+      if (normal)
+        break;
+      else
+        goto error;
+    } else {
+      wl_display_read_events (display->display);
+      wl_display_dispatch_queue_pending (display->display, display->wl_queue);
+    }
+  }
+
+  return NULL;
+
+error:
+  GST_ERROR ("Error communicating with the wayland server");
+  return NULL;
+}
+
 static gboolean
 create_display (GstWaylandSink * sink)
 {
   struct display *display;
   struct window *window;
+  GError *err = NULL;
 
   display = sink->display;
 
@@ -594,6 +639,14 @@ create_display (GstWaylandSink * sink)
   display->wl_queue = wl_display_create_queue (display->display);
   if (!display->wl_queue) {
     GST_ERROR_OBJECT (sink, "Failed to create an event queue");
+    return FALSE;
+  }
+
+  sink->thread = g_thread_try_new ("GstWaylandSink", gst_wl_display_thread_run,
+      sink, &err);
+  if (err) {
+    GST_ERROR_OBJECT (sink,
+        "Failed to start thread for the display's events: '%s'", err->message);
     return FALSE;
   }
 
@@ -799,6 +852,9 @@ gst_wayland_sink_stop (GstBaseSink * bsink)
   GST_DEBUG_OBJECT (sink, "stop");
 
   display = sink->display;
+
+  gst_poll_set_flushing (sink->wl_fd_poll, TRUE);
+  g_thread_join (sink->thread);
 
   wayland_sync (sink);
 
@@ -1078,10 +1134,7 @@ gst_wayland_sink_render (GstBaseSink * bsink, GstBuffer * buffer)
   wl_surface_damage (sink->window->surface, 0, 0, res.w, res.h);
   wl_surface_commit (window->surface);
 
-  wl_display_dispatch_pending (display->display);
   wl_display_flush (display->display);
-
-  wayland_sync (sink);
 
   if (buffer != to_render)
     gst_buffer_unref (to_render);
