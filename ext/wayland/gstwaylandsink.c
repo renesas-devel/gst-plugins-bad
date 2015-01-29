@@ -994,6 +994,18 @@ gst_wayland_sink_center_rect (GstWaylandSink * sink, GstVideoRectangle * result,
   gst_video_sink_center_rect (src, dst, result, scaling);
 }
 
+static void
+frame_redraw_callback (void *data, struct wl_callback *callback, uint32_t time)
+{
+  GST_LOG ("frame_redraw_cb");
+
+  wl_callback_destroy (callback);
+}
+
+static const struct wl_callback_listener frame_callback_listener = {
+  frame_redraw_callback
+};
+
 static GstFlowReturn
 gst_wayland_sink_render (GstBaseSink * bsink, GstBuffer * buffer)
 {
@@ -1004,6 +1016,7 @@ gst_wayland_sink_render (GstBaseSink * bsink, GstBuffer * buffer)
   GstFlowReturn ret;
   struct window *window;
   struct display *display;
+  struct wl_callback *callback;
 
   /* Avoid duplicate rendering of the first frame */
   if (sink->preroll_buffer) {
@@ -1047,6 +1060,14 @@ gst_wayland_sink_render (GstBaseSink * bsink, GstBuffer * buffer)
   }
 
   gst_wayland_sink_center_rect (sink, &res, FALSE);
+
+  /* A wl_buffer release event for the one before a frame being displayed
+   * will synchronize and follow a wl_surface_frame event.
+   * No processing in the wl_surface_frame callback function in itself.
+   */
+  callback = wl_surface_frame (sink->window->surface);
+  wl_proxy_set_queue ((struct wl_proxy *) callback, display->wl_queue);
+  wl_callback_add_listener (callback, &frame_callback_listener, sink);
 
   /* Once increase a buffer reference count to take a buffer back to
    * the buffer pool, synchronizing with the frame sync callback.
