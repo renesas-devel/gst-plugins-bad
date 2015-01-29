@@ -1208,7 +1208,6 @@ gst_wayland_sink_change_state (GstElement * element, GstStateChange transition)
         wl_surface_damage (sink->window->surface, 0, 0, res.w, res.h);
         wl_surface_commit (sink->window->surface);
         wl_display_flush (sink->display->display);
-        wayland_sync (sink);
       }
     default:
       break;
