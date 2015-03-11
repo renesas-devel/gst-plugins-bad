@@ -122,6 +122,14 @@ struct _GstWaylandSink
   gboolean ext_display;
 
   GstBuffer *preroll_buffer;
+
+  GCond sync_cond;
+  GMutex sync_mutex;
+};
+
+struct sync_cb_data {
+  GstWaylandSink *sink;
+  gint done;
 };
 
 struct _GstWaylandSinkClass

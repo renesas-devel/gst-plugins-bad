@@ -251,6 +251,9 @@ gst_wayland_sink_init (GstWaylandSink * sink)
 
   g_mutex_init (&sink->wayland_lock);
 
+  g_cond_init (&sink->sync_cond);
+  g_mutex_init (&sink->sync_mutex);
+
   sink->wl_fd_poll = gst_poll_new (TRUE);
 }
 
@@ -345,6 +348,9 @@ gst_wayland_sink_finalize (GObject * object)
   gst_poll_free (sink->wl_fd_poll);
 
   g_mutex_clear (&sink->wayland_lock);
+
+  g_cond_clear (&sink->sync_cond);
+  g_mutex_clear (&sink->sync_mutex);
 
   G_OBJECT_CLASS (parent_class)->finalize (object);
 }
@@ -853,10 +859,10 @@ gst_wayland_sink_stop (GstBaseSink * bsink)
 
   display = sink->display;
 
+  wayland_sync (sink);
+
   gst_poll_set_flushing (sink->wl_fd_poll, TRUE);
   g_thread_join (sink->thread);
-
-  wayland_sync (sink);
 
   if (sink->pool) {
     gst_object_unref (sink->pool);
@@ -997,9 +1003,13 @@ gst_wayland_sink_preroll (GstBaseSink * bsink, GstBuffer * buffer)
 static void
 wl_sync_callback (void *data, struct wl_callback *callback, uint32_t serial)
 {
-  int *done = data;
+  struct sync_cb_data *cb_data = data;
 
-  *done = 1;
+  g_mutex_lock (&cb_data->sink->sync_mutex);
+  cb_data->done = 1;
+  g_cond_signal (&cb_data->sink->sync_cond);
+  g_mutex_unlock (&cb_data->sink->sync_mutex);
+
   wl_callback_destroy (callback);
 }
 
@@ -1007,23 +1017,29 @@ static const struct wl_callback_listener wayland_sync_listener = {
   .done = wl_sync_callback
 };
 
-static gint
+static gboolean
 wayland_sync (GstWaylandSink * sink)
 {
   struct wl_callback *callback;
   struct display *display;
-  gint ret = 0;
-  gint done = 0;
+  struct sync_cb_data cb_data = { sink, 0 };
+  gint64 timeout;
+  gboolean ret = TRUE;
 
   display = sink->display;
 
   callback = wl_display_sync (display->display);
-  wl_callback_add_listener (callback, &wayland_sync_listener, &done);
+  wl_callback_add_listener (callback, &wayland_sync_listener, &cb_data);
   wl_proxy_set_queue ((struct wl_proxy *) callback, display->wl_queue);
-  while (ret >= 0 && !done)
-    ret = wl_display_dispatch_queue (display->display, display->wl_queue);
+  wl_display_flush (display->display);
 
-  if (!done)
+  g_mutex_lock (&sink->sync_mutex);
+  timeout = g_get_monotonic_time () + 2 * G_TIME_SPAN_SECOND;
+  while (ret && !cb_data.done)
+    ret = g_cond_wait_until (&sink->sync_cond, &sink->sync_mutex, timeout);
+  g_mutex_unlock (&sink->sync_mutex);
+
+  if (!cb_data.done)
     wl_callback_destroy (callback);
 
   return ret;
