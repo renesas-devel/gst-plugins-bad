@@ -1152,6 +1152,8 @@ gst_wayland_sink_render (GstBaseSink * bsink, GstBuffer * buffer)
 
   wl_display_flush (display->display);
 
+  wayland_sync (sink);
+
   if (buffer != to_render)
     gst_buffer_unref (to_render);
   return GST_FLOW_OK;
