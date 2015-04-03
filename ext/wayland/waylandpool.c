@@ -71,6 +71,8 @@ gst_wl_meta_free (GstWlMeta * meta, GstBuffer * buffer)
       is_dmabuf = gst_is_dmabuf_memory (mem);
       if (!is_dmabuf)
         kms_bo_unmap (kms_bo);
+      else
+        close (gst_dmabuf_memory_get_fd (mem));
       kms_bo_destroy (&kms_bo);
     }
     g_ptr_array_unref (meta->kms_bo_array);
