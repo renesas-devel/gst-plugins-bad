@@ -1045,13 +1045,6 @@ wayland_sync (GstWaylandSink * sink)
   return ret;
 }
 
-void
-wayland_buffer_release (void *data, struct wl_buffer *buffer)
-{
-  GstBuffer *buf = (GstBuffer *) data;
-  gst_buffer_unref (buf);
-}
-
 static void
 gst_wayland_sink_center_rect (GstWaylandSink * sink, GstVideoRectangle * result,
     gboolean scaling)

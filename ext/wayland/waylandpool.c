@@ -102,6 +102,13 @@ gst_wl_meta_get_info (void)
   return wl_meta_info;
 }
 
+static void
+wayland_buffer_release (void *data, struct wl_buffer *buffer)
+{
+  GstBuffer *buf = (GstBuffer *) data;
+  gst_buffer_unref (buf);
+}
+
 static const struct wl_buffer_listener wayland_buffer_listener = {
   .release = wayland_buffer_release
 };
