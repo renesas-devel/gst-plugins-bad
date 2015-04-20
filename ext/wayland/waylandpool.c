@@ -103,15 +103,34 @@ gst_wl_meta_get_info (void)
 }
 
 static void
-wayland_buffer_release (void *data, struct wl_buffer *buffer)
+wayland_buffer_release (void *data, struct wl_buffer *wl_buffer)
 {
-  GstBuffer *buf = (GstBuffer *) data;
+  GstWaylandBufferPool *wpool = data;
+  GstBuffer *buf;
+
+  g_mutex_lock (&wpool->buffers_map_mutex);
+  buf = g_hash_table_lookup (wpool->buffers_map, wl_buffer);
+  g_mutex_unlock (&wpool->buffers_map_mutex);
+
+  GST_LOG_OBJECT (wpool, "wl_buffer::release (GstBuffer: %p)", buf);
+
+  g_atomic_int_dec_and_test (&wpool->sink->window->committed_num);
   gst_buffer_unref (buf);
 }
 
 static const struct wl_buffer_listener wayland_buffer_listener = {
   .release = wayland_buffer_release
 };
+
+static void
+insert_buffers_to_hash_table (GstWaylandBufferPool * wpool,
+    struct wl_buffer *wl_buffer, GstBuffer * buffer)
+{
+  /* configure listening to wl_buffer.release */
+  g_mutex_lock (&wpool->buffers_map_mutex);
+  g_hash_table_insert (wpool->buffers_map, wl_buffer, buffer);
+  g_mutex_unlock (&wpool->buffers_map_mutex);
+}
 
 #ifdef HAVE_WAYLAND_KMS
 static gboolean
@@ -186,9 +205,11 @@ gst_wayland_buffer_pool_create_buffer_from_dmabuf (GstWaylandBufferPool * wpool,
 
   wmeta = gst_buffer_get_wl_meta (buffer);
 
+  insert_buffers_to_hash_table (wpool, wmeta->wbuffer, buffer);
+
   wl_proxy_set_queue ((struct wl_proxy *) wmeta->wbuffer,
       wpool->sink->display->wl_queue);
-  wl_buffer_add_listener (wmeta->wbuffer, &wayland_buffer_listener, buffer);
+  wl_buffer_add_listener (wmeta->wbuffer, &wayland_buffer_listener, wpool);
 
   wmeta->kms_bo_array = NULL;
 
@@ -498,9 +519,11 @@ wayland_buffer_pool_alloc (GstBufferPool * pool, GstBuffer ** buffer,
   }
   *buffer = w_buffer;
 
+  insert_buffers_to_hash_table (w_pool, meta->wbuffer, w_buffer);
+
   wl_proxy_set_queue ((struct wl_proxy *) meta->wbuffer,
       w_pool->sink->display->wl_queue);
-  wl_buffer_add_listener (meta->wbuffer, &wayland_buffer_listener, w_buffer);
+  wl_buffer_add_listener (meta->wbuffer, &wayland_buffer_listener, w_pool);
 
   return GST_FLOW_OK;
 
@@ -531,6 +554,22 @@ gst_wayland_buffer_pool_new (GstWaylandSink * waylandsink)
   return GST_BUFFER_POOL_CAST (pool);
 }
 
+static gboolean
+wayland_buffer_pool_stop (GstBufferPool * pool)
+{
+  GstWaylandBufferPool *wpool = GST_WAYLAND_BUFFER_POOL (pool);
+
+  GST_DEBUG_OBJECT (wpool, "Stopping wayland buffer pool");
+
+  /* all buffers are about to be destroyed;
+   * we should no longer do anything with them */
+  g_mutex_lock (&wpool->buffers_map_mutex);
+  g_hash_table_remove_all (wpool->buffers_map);
+  g_mutex_unlock (&wpool->buffers_map_mutex);
+
+  return GST_BUFFER_POOL_CLASS (parent_class)->stop (pool);
+}
+
 static void
 gst_wayland_buffer_pool_class_init (GstWaylandBufferPoolClass * klass)
 {
@@ -541,6 +580,7 @@ gst_wayland_buffer_pool_class_init (GstWaylandBufferPoolClass * klass)
 
   gstbufferpool_class->set_config = wayland_buffer_pool_set_config;
   gstbufferpool_class->alloc_buffer = wayland_buffer_pool_alloc;
+  gstbufferpool_class->stop = wayland_buffer_pool_stop;
 }
 
 static void
@@ -549,6 +589,9 @@ gst_wayland_buffer_pool_init (GstWaylandBufferPool * pool)
 #ifdef HAVE_WAYLAND_KMS
   pool->kms = NULL;
 #endif
+
+  g_mutex_init (&pool->buffers_map_mutex);
+  pool->buffers_map = g_hash_table_new (g_direct_hash, g_direct_equal);
 }
 
 static void
@@ -564,6 +607,9 @@ gst_wayland_buffer_pool_finalize (GObject * object)
   if (pool->kms)
     kms_destroy (&pool->kms);
 #endif
+
+  g_mutex_clear (&pool->buffers_map_mutex);
+  g_hash_table_unref (pool->buffers_map);
 
   gst_object_unref (pool->sink);
 

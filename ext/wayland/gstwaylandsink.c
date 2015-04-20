@@ -581,6 +581,7 @@ create_display (GstWaylandSink * sink)
 
   window = g_malloc0 (sizeof *window);
   window->display = display;
+  window->committed_num = 0;
   window->screen_valid = FALSE;
   window->surface = wl_compositor_create_surface (display->compositor);
 
@@ -859,7 +860,17 @@ gst_wayland_sink_stop (GstBaseSink * bsink)
 
   display = sink->display;
 
-  wayland_sync (sink);
+  if (sink->window) {
+    /* The buffer release event can be buffered in the wayland server,
+     * so the client side has to poll the server until all the buffers
+     * we posted to the server are released.
+     */
+    wayland_sync (sink);
+    while (g_atomic_int_get (&sink->window->committed_num) > 0) {
+      usleep (10000);
+      wayland_sync (sink);
+    }
+  }
 
   gst_poll_set_flushing (sink->wl_fd_poll, TRUE);
   g_thread_join (sink->thread);
@@ -1138,6 +1149,8 @@ gst_wayland_sink_render (GstBaseSink * bsink, GstBuffer * buffer)
    * the buffer pool, synchronizing with the frame sync callback.
    */
   gst_buffer_ref (buffer);
+
+  g_atomic_int_inc (&sink->window->committed_num);
 
   wl_surface_attach (sink->window->surface, meta->wbuffer, 0, 0);
   wl_surface_damage (sink->window->surface, 0, 0, res.w, res.h);

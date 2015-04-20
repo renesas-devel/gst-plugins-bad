@@ -85,6 +85,9 @@ struct _GstWaylandBufferPool
   guint width;
   guint height;
 
+  GMutex buffers_map_mutex;
+  GHashTable *buffers_map;
+
 #ifdef HAVE_WAYLAND_KMS
   struct kms_driver *kms;
   GstAllocator *allocator;

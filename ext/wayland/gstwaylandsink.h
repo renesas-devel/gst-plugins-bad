@@ -86,6 +86,7 @@ struct window
   struct wl_shell_surface *shell_surface;
   guint init_complete :1;
   guint screen_valid :1;
+  gint committed_num;
 };
 
 struct shm_pool {
