@@ -860,18 +860,6 @@ gst_wayland_sink_stop (GstBaseSink * bsink)
 
   display = sink->display;
 
-  if (sink->window) {
-    /* The buffer release event can be buffered in the wayland server,
-     * so the client side has to poll the server until all the buffers
-     * we posted to the server are released.
-     */
-    wayland_sync (sink);
-    while (g_atomic_int_get (&sink->window->committed_num) > 0) {
-      usleep (10000);
-      wayland_sync (sink);
-    }
-  }
-
   gst_poll_set_flushing (sink->wl_fd_poll, TRUE);
   g_thread_join (sink->thread);
 
@@ -1285,6 +1273,23 @@ gst_wayland_sink_query (GstBaseSink * bsink, GstQuery * query)
   return ret;
 }
 
+static void
+gst_wayland_sink_wait_for_all_buffers_release (GstWaylandSink * sink)
+{
+  if (!sink->window)
+    return;
+
+  /* The buffer release event can be buffered in the wayland server,
+   * so the client side has to poll the server until all the buffers
+   * we posted to the server are released.
+   */
+  wayland_sync (sink);
+  while (g_atomic_int_get (&sink->window->committed_num) > 0) {
+    usleep (10000);
+    wayland_sync (sink);
+  }
+}
+
 static GstStateChangeReturn
 gst_wayland_sink_change_state (GstElement * element, GstStateChange transition)
 {
@@ -1306,6 +1311,8 @@ gst_wayland_sink_change_state (GstElement * element, GstStateChange transition)
         wl_surface_damage (sink->window->surface, 0, 0, res.w, res.h);
         wl_surface_commit (sink->window->surface);
         wl_display_flush (sink->display->display);
+
+        gst_wayland_sink_wait_for_all_buffers_release (sink);
       }
     default:
       break;
