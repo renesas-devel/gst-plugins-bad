@@ -1187,7 +1187,7 @@ gst_wayland_sink_query (GstBaseSink * bsink, GstQuery * query)
       GstWaylandBufferPool *wpool;
       const GstStructure *structure;
       GstStructure *str_writable;
-      gint dmabuf[GST_VIDEO_MAX_PLANES] = { 0 };
+      gint dmabuf[GST_VIDEO_MAX_PLANES];
       GstAllocator *allocator;
       gint width, height;
       gint stride[GST_VIDEO_MAX_PLANES] = { 0 };

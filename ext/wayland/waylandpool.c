@@ -439,7 +439,7 @@ gst_buffer_add_wayland_meta_kms (GstBuffer * buffer,
   gint err;
   void *data[GST_VIDEO_MAX_PLANES] = { NULL };
   guint32 handle;
-  gint dmabuf_fd[GST_VIDEO_MAX_PLANES] = { -1 };
+  gint dmabuf_fd[GST_VIDEO_MAX_PLANES];
   struct kms_bo *kms_bo[GST_VIDEO_MAX_PLANES];
   guint n_planes;
   guint i;
