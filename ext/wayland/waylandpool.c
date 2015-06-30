@@ -150,6 +150,16 @@ gst_wayland_buffer_pool_create_mp_buffer (GstWaylandBufferPool * wpool,
   wmeta = (GstWlMeta *) gst_buffer_add_meta (buffer, GST_WL_META_INFO, NULL);
   wmeta->sink = gst_object_ref (sink);
 
+  /*
+   * Wayland protocal APIs require that all (even unused) file descriptors be
+   * valid. Instead of sending random dummy values, copy the valid fds from
+   * the other planes.
+   */
+  if (n_planes == 1)
+    dmabuf[1] = dmabuf[2] = dmabuf[0];
+  else if (n_planes == 2)
+    dmabuf[2] = dmabuf[0];
+
   wmeta->wbuffer =
       wl_kms_create_mp_buffer (sink->display->wl_kms, width, height,
       gst_wayland_format_to_wl_format (format), dmabuf[0], in_stride[0],
