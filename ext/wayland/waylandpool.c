@@ -134,6 +134,54 @@ insert_buffers_to_hash_table (GstWaylandBufferPool * wpool,
 
 #ifdef HAVE_WAYLAND_KMS
 static gboolean
+gst_wayland_buffer_pool_video_meta_map (GstVideoMeta * meta, guint plane,
+    GstMapInfo * info, gpointer * data, gint * stride, GstMapFlags flags)
+{
+  GstBuffer *buffer = meta->buffer;
+  GstMemory *mem;
+  gint n_mem;
+
+  n_mem = gst_buffer_n_memory (buffer);
+  if (n_mem <= plane) {
+    GST_ERROR ("plane is out of range (plane:%d)", plane);
+    return FALSE;
+  }
+
+  mem = gst_buffer_get_memory (buffer, plane);
+  if (!gst_memory_map (mem, info, flags)) {
+    GST_ERROR ("failed to map memory (plane:%d)", plane);
+    return FALSE;
+  }
+
+  *data = info->data;
+  *stride = meta->stride[plane];
+
+  return TRUE;
+}
+
+static gboolean
+gst_wayland_buffer_pool_video_meta_unmap (GstVideoMeta * meta, guint plane,
+    GstMapInfo * info)
+{
+  GstBuffer *buffer = meta->buffer;
+  GstMemory *mem;
+  gint n_mem;
+
+  n_mem = gst_buffer_n_memory (buffer);
+  if (n_mem <= plane) {
+    GST_ERROR ("plane is out of range (plane:%d)", plane);
+    return FALSE;
+  }
+
+  mem = gst_buffer_peek_memory (buffer, plane);
+
+  gst_memory_unmap (mem, info);
+  gst_memory_unref (mem);
+
+  return TRUE;
+}
+
+static gboolean
 gst_wayland_buffer_pool_create_mp_buffer (GstWaylandBufferPool * wpool,
     GstBuffer * buffer, gint dmabuf[GST_VIDEO_MAX_PLANES],
     GstAllocator * allocator, gint width, gint height,
@@ -141,6 +189,7 @@ gst_wayland_buffer_pool_create_mp_buffer (GstWaylandBufferPool * wpool,
     gsize offset[GST_VIDEO_MAX_PLANES], GstVideoFormat format, gint n_planes)
 {
   GstWlMeta *wmeta;
+  GstVideoMeta *vmeta;
   GstWaylandSink *sink;
   size_t size;
   gint i;
@@ -187,8 +236,10 @@ gst_wayland_buffer_pool_create_mp_buffer (GstWaylandBufferPool * wpool,
   wmeta->data = NULL;
   wmeta->size = 0;
 
-  gst_buffer_add_video_meta_full (buffer, GST_VIDEO_FRAME_FLAG_NONE, format,
-      width, height, n_planes, offset, in_stride);
+  vmeta = gst_buffer_add_video_meta_full (buffer, GST_VIDEO_FRAME_FLAG_NONE,
+      format, width, height, n_planes, offset, in_stride);
+  vmeta->map = gst_wayland_buffer_pool_video_meta_map;
+  vmeta->unmap = gst_wayland_buffer_pool_video_meta_unmap;
 
   return TRUE;
 }
