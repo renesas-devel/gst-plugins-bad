@@ -59,7 +59,6 @@ gst_wl_meta_free (GstWlMeta * meta, GstBuffer * buffer)
   guint i;
 #endif
 
-  gst_object_unref (meta->sink);
 #ifdef HAVE_WAYLAND_KMS
   if (meta->kms_bo_array) {
     n_mem = gst_buffer_n_memory (buffer);
@@ -84,6 +83,8 @@ gst_wl_meta_free (GstWlMeta * meta, GstBuffer * buffer)
   munmap (meta->data, meta->size);
 #endif
   wl_buffer_destroy (meta->wbuffer);
+  wayland_sync (meta->sink);
+  gst_object_unref (meta->sink);
 }
 
 const GstMetaInfo *

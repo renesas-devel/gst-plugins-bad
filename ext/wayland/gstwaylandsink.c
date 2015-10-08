@@ -108,7 +108,6 @@ static void registry_handle_global (void *data, struct wl_registry *registry,
 static void create_window (GstWaylandSink * sink, struct display *display,
     int width, int height);
 static void shm_pool_destroy (struct shm_pool *pool);
-static gint wayland_sync (GstWaylandSink * sink);
 
 
 typedef struct
@@ -1020,7 +1019,7 @@ static const struct wl_callback_listener wayland_sync_listener = {
   .done = wl_sync_callback
 };
 
-static gboolean
+gboolean
 wayland_sync (GstWaylandSink * sink)
 {
   struct wl_callback *callback;
